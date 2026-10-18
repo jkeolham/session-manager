@@ -151,7 +151,10 @@ class SessionChatPanelManager {
 
     const sendTerminalToWebview = (isInit = false) => {
       try {
-        const pane = execSync(`tmux capture-pane -p -S -3000 -t "${record.sessionName}" 2>/dev/null`, { encoding: 'utf-8' });
+        if (isInit) {
+          execSync(`tmux resize-window -t "${record.sessionName}" -x 120 -y 40 2>/dev/null`);
+        }
+        const pane = execSync(`tmux capture-pane -p -J -S -3000 -t "${record.sessionName}" 2>/dev/null`, { encoding: 'utf-8' });
         record.panel.webview.postMessage({
           type: isInit ? 'termInit' : 'termOutput',
           data: pane
@@ -194,7 +197,17 @@ class SessionChatPanelManager {
         setTimeout(() => sendTurnsToWebview(false), 1600);
       } else if (data.command === 'termActivate') {
         record.isTermActive = true;
+        try {
+          execSync(`tmux resize-window -t "${record.sessionName}" -x 120 -y 40 2>/dev/null`);
+        } catch (e) {}
         sendTerminalToWebview(true);
+      } else if (data.command === 'termResize') {
+        if (data.cols && data.cols >= 60 && data.cols <= 260) {
+          try {
+            execSync(`tmux resize-window -t "${record.sessionName}" -x ${data.cols} 2>/dev/null`);
+            sendTerminalToWebview(false);
+          } catch (e) {}
+        }
       } else if (data.command === 'termDeactivate') {
         record.isTermActive = false;
       } else if (data.command === 'termData') {
@@ -233,8 +246,8 @@ class SessionChatPanelManager {
         <span class="header-title">${displayTitle}</span>
       </div>
       <div class="tab-switcher">
-        <button id="tab-chat" class="tab-btn active">�� AI 대화창</button>
-        <button id="tab-term" class="tab-btn">💻 콘솔 터미널</button>
+        <button id="tab-chat" class="tab-btn active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>AI 대화창</button>
+        <button id="tab-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>콘솔 터미널</button>
       </div>
       <div class="header-actions">
         <button id="btn-sync" title="최신 대화 동기화">🔄</button>

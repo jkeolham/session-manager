@@ -543,17 +543,18 @@ li.chat-li {
   min-height: 0;
   height: 100%;
   margin: 0;
-  padding: 12px 18px;
+  padding: 14px 18px;
   overflow-y: scroll !important;
   overflow-x: auto;
   box-sizing: border-box;
   font-family: var(--vscode-editor-font-family, "Fira Code", "Consolas", monospace);
   font-size: var(--vscode-editor-font-size, 12px);
-  line-height: 1.42;
+  line-height: 1.45;
   color: #f4f4f5;
   background: #000000;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 #terminal-output::-webkit-scrollbar {

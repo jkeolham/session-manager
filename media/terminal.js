@@ -25,6 +25,19 @@
     });
   }
 
+  
+  // Sync tmux terminal width on resize or activation
+  function syncCols() {
+    const viewTerm = document.getElementById('view-term');
+    if (!viewTerm || !viewTerm.classList.contains('active')) return;
+    const cols = Math.max(80, Math.floor((terminalContainer.clientWidth - 36) / 7.5));
+    if (window.vscode) {
+      window.vscode.postMessage({ command: 'termResize', cols });
+    }
+  }
+
+  window.addEventListener('resize', syncCols);
+
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'termInit' || msg.type === 'termOutput') {
