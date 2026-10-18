@@ -238,10 +238,153 @@ function renderMarkdown(rawText) {
   return text;
 }
 
+function formatDuration(sec) {
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  return `${sec}s`;
+}
+
+function groupConsecutiveTurns(turns) {
+  if (!Array.isArray(turns) || turns.length === 0) return [];
+  const grouped = [];
+  let currentAssistant = null;
+
+  function flushAssistant() {
+    if (!currentAssistant) return;
+    const bundledItems = [];
+    let toolBuffer = [];
+    let pendingThought = null;
+
+    function flushTools() {
+      if (toolBuffer.length === 0) return;
+      if (toolBuffer.length === 1) {
+        if (pendingThought) {
+          const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
+          bundledItems.push({
+            type: 'thought',
+            thinking: pendingThought.thinking,
+            duration: formatDuration(sec)
+          });
+          pendingThought = null;
+        }
+        bundledItems.push({
+          type: 'single_tool',
+          tool: toolBuffer[0].tool,
+          timestamp: toolBuffer[0].timestamp
+        });
+      } else {
+        const estSec = Math.max(10, toolBuffer.length * 9);
+        bundledItems.push({
+          type: 'worked',
+          duration: formatDuration(estSec),
+          actions: toolBuffer.map(t => t.tool),
+          initialThought: pendingThought ? pendingThought.thinking : null
+        });
+        pendingThought = null;
+      }
+      toolBuffer = [];
+    }
+
+    for (let i = 0; i < currentAssistant.items.length; i++) {
+      const it = currentAssistant.items[i];
+      if (it.type === 'thought') {
+        if (toolBuffer.length === 0 && i < currentAssistant.items.length - 1 && currentAssistant.items[i + 1].type === 'tool') {
+          pendingThought = it;
+        } else {
+          flushTools();
+          if (pendingThought) {
+            const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
+            bundledItems.push({
+              type: 'thought',
+              thinking: pendingThought.thinking,
+              duration: formatDuration(sec)
+            });
+            pendingThought = null;
+          }
+          const sec = Math.max(2, Math.round((it.thinking || '').length / 125));
+          bundledItems.push({
+            type: 'thought',
+            thinking: it.thinking,
+            duration: formatDuration(sec)
+          });
+        }
+      } else if (it.type === 'tool') {
+        toolBuffer.push(it);
+      } else if (it.type === 'content') {
+        flushTools();
+        if (pendingThought) {
+          const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
+          bundledItems.push({
+            type: 'thought',
+            thinking: pendingThought.thinking,
+            duration: formatDuration(sec)
+          });
+          pendingThought = null;
+        }
+        const isInterim = i < currentAssistant.items.length - 1;
+        bundledItems.push({
+          type: isInterim ? 'interim' : 'content',
+          content: it.content
+        });
+      }
+    }
+    flushTools();
+    if (pendingThought) {
+      const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
+      bundledItems.push({
+        type: 'thought',
+        thinking: pendingThought.thinking,
+        duration: formatDuration(sec)
+      });
+      pendingThought = null;
+    }
+
+    currentAssistant.items = bundledItems;
+    grouped.push(currentAssistant);
+    currentAssistant = null;
+  }
+
+  for (const turn of turns) {
+    if (turn.role === 'user') {
+      flushAssistant();
+      grouped.push(turn);
+    } else {
+      if (!currentAssistant) {
+        currentAssistant = {
+          role: 'assistant',
+          index: turn.index,
+          items: [],
+          timestamp: turn.timestamp
+        };
+      }
+      if (turn.thinking && turn.thinking.trim().length > 0) {
+        currentAssistant.items.push({ type: 'thought', thinking: turn.thinking });
+      }
+      if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
+        for (const tc of turn.toolCalls) {
+          currentAssistant.items.push({ type: 'tool', tool: tc });
+        }
+      }
+      if (turn.content && turn.content.trim().length > 0) {
+        currentAssistant.items.push({ type: 'content', content: turn.content });
+      }
+    }
+  }
+  flushAssistant();
+  return grouped;
+}
+
 function renderTurn(turn) {
   if (turn.role === 'user') {
     const cleanContent = cleanUserMessageText(turn.content);
     if (!cleanContent) return null;
+
+    if (typeof document === 'undefined') {
+      return `<div class="turn-item user"><div class="user-bubble"><div class="user-content">${escapeHtml(cleanContent).replace(/\n/g, '<br/>')}</div></div></div>`;
+    }
 
     const div = document.createElement('div');
     div.className = 'turn-item user';
@@ -250,53 +393,80 @@ function renderTurn(turn) {
   }
 
   // Assistant turn
-  const hasContent = turn.content && turn.content.trim().length > 0;
-  const hasThinking = turn.thinking && turn.thinking.trim().length > 0;
-  const hasTools = Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0;
-
-  if (!hasContent && !hasThinking && !hasTools) {
+  const normalized = turn.items ? turn : (groupConsecutiveTurns([turn])[0] || turn);
+  if (!normalized || !normalized.items || normalized.items.length === 0) {
     return null;
   }
 
-  const div = document.createElement('div');
-  div.className = 'turn-item assistant';
-
   let inner = '';
 
-  // 1. Thinking block (sleek step summary)
-  if (hasThinking) {
-    inner += `
-      <details class="step-indicator thinking">
-        <summary class="step-summary">
-          <span class="step-label">생각 과정 보기</span>
-          <span class="step-chevron">›</span>
-        </summary>
-        <div class="step-body thinking-body">${escapeHtml(turn.thinking).replace(/\n/g, '<br/>')}</div>
-      </details>`;
-  }
-
-  // 2. Tool calls (sleek step summaries matching reference image)
-  if (hasTools) {
-    for (const tc of turn.toolCalls) {
+  for (const item of normalized.items) {
+    if (item.type === 'worked') {
+      inner += `
+        <details class="step-indicator worked-group">
+          <summary class="step-summary">
+            <span class="step-label">Worked for ${escapeHtml(item.duration)}</span>
+            <span class="step-chevron">›</span>
+          </summary>
+          <div class="step-body worked-steps-list">
+            ${item.initialThought ? `
+              <details class="sub-step-indicator thinking">
+                <summary class="sub-step-summary">
+                  <span class="sub-step-label">Thought process</span>
+                  <span class="step-chevron">›</span>
+                </summary>
+                <div class="sub-step-body thinking-body">${escapeHtml(item.initialThought).replace(/\n/g, '<br/>')}</div>
+              </details>` : ''}
+            ${item.actions.map(act => {
+              const isFailed = act.status === 'ERROR' || act.status === 'FAILED';
+              const argsDisplay = typeof act.args === 'object' ? JSON.stringify(act.args, null, 2) : String(act.args || '');
+              return `
+                <details class="sub-step-indicator ${isFailed ? 'failed' : ''}">
+                  <summary class="sub-step-summary">
+                    <span class="sub-step-label">${escapeHtml(act.label || act.name)}</span>
+                    ${isFailed ? '<span class="step-status-failed">실패</span>' : ''}
+                    <span class="step-chevron">›</span>
+                  </summary>
+                  <div class="sub-step-body"><pre><code>${escapeHtml(argsDisplay)}</code></pre></div>
+                </details>`;
+            }).join('')}
+          </div>
+        </details>`;
+    } else if (item.type === 'single_tool') {
+      const tc = item.tool;
       const isFailed = tc.status === 'ERROR' || tc.status === 'FAILED';
-      const argsDisplay = typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args);
+      const argsDisplay = typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args || '');
       inner += `
         <details class="step-indicator ${isFailed ? 'failed' : ''}">
           <summary class="step-summary">
-            <span class="step-label">${escapeHtml(tc.label || tc.name)}</span>
+            <span class="step-label">${escapeHtml(tc.label || tc.name)} finished</span>
             ${isFailed ? '<span class="step-status-failed">실패</span>' : ''}
             <span class="step-chevron">›</span>
           </summary>
           <div class="step-body"><pre><code>${escapeHtml(argsDisplay)}</code></pre></div>
         </details>`;
+    } else if (item.type === 'thought') {
+      inner += `
+        <details class="step-indicator thinking">
+          <summary class="step-summary">
+            <span class="step-label">Thought for ${escapeHtml(item.duration)}</span>
+            <span class="step-chevron">›</span>
+          </summary>
+          <div class="step-body thinking-body">${escapeHtml(item.thinking).replace(/\n/g, '<br/>')}</div>
+        </details>`;
+    } else if (item.type === 'interim') {
+      inner += `<div class="assistant-interim-text">${escapeHtml(item.content)}</div>`;
+    } else if (item.type === 'content') {
+      inner += `<div class="markdown-body">${renderMarkdown(item.content)}</div>`;
     }
   }
 
-  // 3. Assistant markdown body (seamless flow without card border)
-  if (hasContent) {
-    inner += `<div class="markdown-body">${renderMarkdown(turn.content)}</div>`;
+  if (typeof document === 'undefined') {
+    return `<div class="turn-item assistant">${inner}</div>`;
   }
 
+  const div = document.createElement('div');
+  div.className = 'turn-item assistant';
   div.innerHTML = inner;
   return div;
 }
@@ -452,7 +622,8 @@ function applyTurns(msg, isInitial) {
     messagesContainer.appendChild(wrap);
   }
 
-  for (const t of msg.turns) {
+  const groupedTurns = groupConsecutiveTurns(msg.turns);
+  for (const t of groupedTurns) {
     const el = renderTurn(t);
     if (el) messagesContainer.appendChild(el);
   }
@@ -481,6 +652,8 @@ if (typeof module !== 'undefined') {
     cleanUserMessageText,
     parseMarkdownTables,
     renderMarkdown,
-    renderTurn
+    renderTurn,
+    formatDuration,
+    groupConsecutiveTurns
   };
 }

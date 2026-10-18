@@ -44,7 +44,7 @@ function parseTranscriptString(rawText, limit = 50) {
           index: obj.step_index || allTurns.length + 1,
           role: 'user',
           content: cleaned,
-          timestamp: obj.timestamp || null
+          timestamp: obj.timestamp || obj.created_at || null
         });
       } else if (obj.type === 'PLANNER_RESPONSE') {
         const toolCalls = [];
@@ -101,7 +101,7 @@ function parseTranscriptString(rawText, limit = 50) {
           content,
           toolCalls,
           thinking,
-          timestamp: obj.timestamp || null
+          timestamp: obj.timestamp || obj.created_at || null
         });
       }
     } catch (e) {
