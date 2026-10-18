@@ -6,12 +6,14 @@
   "publisher": "ttolmany",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ttolmany/session-manager"
+    "url": "https://github.com/jkeolham/session-manager"
   },
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onView:sessionManagerView"
   ],
