@@ -1,4 +1,5 @@
 const vscode = acquireVsCodeApi();
+window.vscode = vscode;
 
 const messagesContainer = document.getElementById('messages-container');
 const emptyState = document.getElementById('empty-state');

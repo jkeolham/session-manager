@@ -178,6 +178,7 @@ class SessionChatPanelManager {
   </div>
 
   <script nonce="${nonce}" src="${webview.asWebviewUri(this.extensionUri)}/media/chat.js"></script>
+  <script nonce="${nonce}" src="${webview.asWebviewUri(this.extensionUri)}/media/terminal.js"></script>
 </body>
 </html>`;
   }
