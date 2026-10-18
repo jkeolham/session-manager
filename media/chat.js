@@ -1,25 +1,28 @@
-const vscode = acquireVsCodeApi();
-window.vscode = vscode;
+const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : { postMessage: () => {} };
+if (isBrowser) {
+  window.vscode = vscode;
+}
 
-const messagesContainer = document.getElementById('messages-container');
-const emptyState = document.getElementById('empty-state');
-const composerInput = document.getElementById('composer-input');
-const enterToggle = document.getElementById('enter-send-toggle');
-const btnSend = document.getElementById('btn-send');
-const btnClear = document.getElementById('btn-clear');
-const btnSync = document.getElementById('btn-sync');
-const btnCopy = document.getElementById('btn-copy');
+const messagesContainer = isBrowser ? document.getElementById('messages-container') : null;
+const emptyState = isBrowser ? document.getElementById('empty-state') : null;
+const composerInput = isBrowser ? document.getElementById('composer-input') : null;
+const enterToggle = isBrowser ? document.getElementById('enter-send-toggle') : null;
+const btnSend = isBrowser ? document.getElementById('btn-send') : null;
+const btnClear = isBrowser ? document.getElementById('btn-clear') : null;
+const btnSync = isBrowser ? document.getElementById('btn-sync') : null;
+const btnCopy = isBrowser ? document.getElementById('btn-copy') : null;
 
-const tabChat = document.getElementById('tab-chat');
-const tabTerm = document.getElementById('tab-term');
-const viewChat = document.getElementById('view-chat');
-const viewTerm = document.getElementById('view-term');
+const tabChat = isBrowser ? document.getElementById('tab-chat') : null;
+const tabTerm = isBrowser ? document.getElementById('tab-term') : null;
+const viewChat = isBrowser ? document.getElementById('view-chat') : null;
+const viewTerm = isBrowser ? document.getElementById('view-term') : null;
 
 let currentSession = null;
 
 function escapeHtml(text) {
   if (!text) return '';
-  return text
+  return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -27,50 +30,143 @@ function escapeHtml(text) {
     .replace(/'/g, '&#039;');
 }
 
-function renderSimpleMarkdown(rawText) {
-  if (!rawText) return '';
-  let html = escapeHtml(rawText);
+function cleanUserMessageText(raw) {
+  if (!raw) return '';
+  let text = String(raw);
+  const reqMatch = text.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i);
+  if (reqMatch) {
+    text = reqMatch[1];
+  }
+  text = text.replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, '');
+  text = text.replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/gi, '');
+  text = text.replace(/<[^>]+>/g, '');
+  return text.trim();
+}
 
-  // Fenced code blocks
-  html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
-    return `<pre><button class="copy-code-btn" onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent)">복사</button><code>${code}</code></pre>`;
+function renderMarkdown(rawText) {
+  if (!rawText) return '';
+
+  // 1. Preserve fenced code blocks
+  const codeBlocks = [];
+  let text = rawText.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    const id = `__CODE_BLOCK_${codeBlocks.length}__`;
+    codeBlocks.push({ lang: lang || 'text', code });
+    return id;
   });
 
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // 2. Escape HTML
+  text = escapeHtml(text);
 
-  // Bold & Italic
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // 3. Headings
+  text = text.replace(/^### (.*$)/gim, '<h3 class="chat-h3">$1</h3>');
+  text = text.replace(/^## (.*$)/gim, '<h2 class="chat-h2">$1</h2>');
+  text = text.replace(/^# (.*$)/gim, '<h1 class="chat-h1">$1</h1>');
 
-  // Paragraph line breaks
-  html = html.replace(/\n\n/g, '<br/><br/>');
-  return html;
+  // 4. Dividers
+  text = text.replace(/^(?:---|[*]{3}|_{3})\s*$/gim, '<hr class="chat-divider" />');
+
+  // 5. Links
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="chat-link" data-url="$2">$1</a>');
+
+  // 6. Inline code pills
+  text = text.replace(/`([^`]+)`/g, '<code class="code-pill">$1</code>');
+
+  // 7. Bullet lists (before italic)
+  text = text.replace(/^\s*[-*]\s+(.*)$/gim, '<li class="chat-li">$1</li>');
+  text = text.replace(/(<li class="chat-li">[\s\S]*?<\/li>)/gim, '<ul class="chat-ul">$1</ul>');
+  text = text.replace(/<\/ul>\s*<ul class="chat-ul">/gim, '');
+
+  // 8. Bold & Italic
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+
+  // 9. Paragraph breaks
+  text = text.replace(/\n\n+/g, '</p><p class="chat-p">');
+  text = text.replace(/\n/g, '<br/>');
+  text = '<p class="chat-p">' + text + '</p>';
+  text = text.replace(/<p class="chat-p">\s*<\/p>/g, '');
+  text = text.replace(/<p class="chat-p">(<h[1-3][^>]*>)/g, '$1');
+  text = text.replace(/(<\/h[1-3]>)<\/p>/g, '$1');
+  text = text.replace(/<p class="chat-p">(<hr[^>]*>)/g, '$1');
+  text = text.replace(/(<hr[^>]*>)<\/p>/g, '$1');
+  text = text.replace(/<p class="chat-p">(<ul[^>]*>)/g, '$1');
+  text = text.replace(/(<\/ul>)<\/p>/g, '$1');
+
+  // 10. Restore code blocks
+  for (let i = 0; i < codeBlocks.length; i++) {
+    const { lang, code } = codeBlocks[i];
+    const escapedCode = escapeHtml(code.trim());
+    const blockHtml = `
+      <div class="code-block-wrap">
+        <div class="code-block-header">
+          <span class="code-lang">${lang}</span>
+          <button class="copy-code-btn" type="button">복사</button>
+        </div>
+        <pre><code class="language-${lang}">${escapedCode}</code></pre>
+      </div>`;
+    text = text.replace(`__CODE_BLOCK_${i}__`, blockHtml);
+  }
+
+  return text;
 }
 
 function renderTurn(turn) {
-  if (!turn.content && !turn.thinking && (!turn.toolCalls || turn.toolCalls.length === 0)) {
+  if (turn.role === 'user') {
+    const cleanContent = cleanUserMessageText(turn.content);
+    if (!cleanContent) return null;
+
+    const div = document.createElement('div');
+    div.className = 'turn-item user';
+    div.innerHTML = `<div class="user-bubble"><div class="user-content">${escapeHtml(cleanContent).replace(/\n/g, '<br/>')}</div></div>`;
+    return div;
+  }
+
+  // Assistant turn
+  const hasContent = turn.content && turn.content.trim().length > 0;
+  const hasThinking = turn.thinking && turn.thinking.trim().length > 0;
+  const hasTools = Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0;
+
+  if (!hasContent && !hasThinking && !hasTools) {
     return null;
   }
 
   const div = document.createElement('div');
-  div.className = `turn-bubble ${turn.role}`;
+  div.className = 'turn-item assistant';
 
   let inner = '';
-  if (turn.role === 'user') {
-    inner = `<div class="user-content">${escapeHtml(turn.content).replace(/\n/g, '<br/>')}</div>`;
-  } else {
-    if (turn.thinking) {
-      inner += `<details class="thinking-block"><summary>🧠 생각 과정 보기</summary><div style="margin-top:6px;font-style:italic;color:var(--desc-fg);">${escapeHtml(turn.thinking).replace(/\n/g, '<br/>')}</div></details>`;
+
+  // 1. Thinking block (sleek step summary)
+  if (hasThinking) {
+    inner += `
+      <details class="step-indicator thinking">
+        <summary class="step-summary">
+          <span class="step-label">생각 과정 보기</span>
+          <span class="step-chevron">›</span>
+        </summary>
+        <div class="step-body thinking-body">${escapeHtml(turn.thinking).replace(/\n/g, '<br/>')}</div>
+      </details>`;
+  }
+
+  // 2. Tool calls (sleek step summaries matching reference image)
+  if (hasTools) {
+    for (const tc of turn.toolCalls) {
+      const isFailed = tc.status === 'ERROR' || tc.status === 'FAILED';
+      const argsDisplay = typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args);
+      inner += `
+        <details class="step-indicator ${isFailed ? 'failed' : ''}">
+          <summary class="step-summary">
+            <span class="step-label">${escapeHtml(tc.label || tc.name)}</span>
+            ${isFailed ? '<span class="step-status-failed">실패</span>' : ''}
+            <span class="step-chevron">›</span>
+          </summary>
+          <div class="step-body"><pre><code>${escapeHtml(argsDisplay)}</code></pre></div>
+        </details>`;
     }
-    if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
-      for (const tc of turn.toolCalls) {
-        inner += `<details class="tool-call"><summary>🛠️ 도구 실행: <strong>${escapeHtml(tc.name)}</strong></summary><pre><code>${escapeHtml(JSON.stringify(tc.args, null, 2))}</code></pre></details>`;
-      }
-    }
-    if (turn.content) {
-      inner += `<div class="markdown-body">${renderSimpleMarkdown(turn.content)}</div>`;
-    }
+  }
+
+  // 3. Assistant markdown body (seamless flow without card border)
+  if (hasContent) {
+    inner += `<div class="markdown-body">${renderMarkdown(turn.content)}</div>`;
   }
 
   div.innerHTML = inner;
@@ -147,10 +243,10 @@ if (btnSync) {
 if (btnCopy) {
   btnCopy.onclick = () => {
     let fullText = '';
-    const bubbles = messagesContainer.querySelectorAll('.turn-bubble');
-    bubbles.forEach(b => {
-      const isUser = b.classList.contains('user');
-      fullText += `### ${isUser ? 'User' : 'Assistant'}\n${b.innerText}\n\n`;
+    const turns = messagesContainer.querySelectorAll('.turn-item');
+    turns.forEach(t => {
+      const isUser = t.classList.contains('user');
+      fullText += `### ${isUser ? 'User' : 'Assistant'}\n${t.innerText}\n\n`;
     });
     navigator.clipboard.writeText(fullText.trim());
     const original = btnCopy.textContent;
@@ -159,9 +255,39 @@ if (btnCopy) {
   };
 }
 
+// Global click delegation for links and copy buttons
+if (isBrowser) {
+  document.addEventListener('click', (e) => {
+  // 1. Link click
+  const link = e.target.closest('.chat-link');
+  if (link) {
+    e.preventDefault();
+    const url = link.getAttribute('data-url') || link.getAttribute('href');
+    if (url && window.vscode) {
+      window.vscode.postMessage({ command: 'openLink', url });
+    }
+    return;
+  }
+
+  // 2. Copy code button
+  const copyBtn = e.target.closest('.copy-code-btn');
+  if (copyBtn) {
+    const wrap = copyBtn.closest('.code-block-wrap');
+    if (wrap) {
+      const codeEl = wrap.querySelector('code');
+      if (codeEl) {
+        navigator.clipboard.writeText(codeEl.innerText);
+        const original = copyBtn.textContent;
+        copyBtn.textContent = '✓ 복사됨';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      }
+    }
+  }
+});
+
 function applyTurns(msg, isInitial) {
   currentSession = msg.session;
-  const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 100;
+  const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
 
   messagesContainer.innerHTML = '';
 
@@ -174,8 +300,8 @@ function applyTurns(msg, isInitial) {
     const wrap = document.createElement('div');
     wrap.className = 'load-earlier-wrap';
     const btnEarlier = document.createElement('button');
-    btnEarlier.className = 'btn-secondary';
-    btnEarlier.textContent = `⬆ 이전 대화 더 불러오기 (총 ${msg.totalCount}개 중 최근 ${msg.turns.length}개 표시 중)`;
+    btnEarlier.className = 'btn-load-earlier';
+    btnEarlier.textContent = `⬆ 이전 대화 더 불러오기 (총 ${msg.totalCount}개 중 최근 ${msg.turns.length}개 표시)`;
     btnEarlier.onclick = () => {
       vscode.postMessage({ command: 'loadMoreTurns' });
     };
@@ -202,14 +328,15 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// Notify host that webview DOM and listeners are ready
-vscode.postMessage({ command: 'ready' });
-vscode.postMessage({ command: 'syncTurns' });
+  vscode.postMessage({ command: 'ready' });
+  vscode.postMessage({ command: 'syncTurns' });
+}
 
 if (typeof module !== 'undefined') {
   module.exports = {
     escapeHtml,
-    renderSimpleMarkdown,
+    cleanUserMessageText,
+    renderMarkdown,
     renderTurn
   };
 }

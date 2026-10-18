@@ -201,6 +201,13 @@ class SessionChatPanelManager {
         try {
           execSync(`tmux send-keys -t "${record.sessionName}" -l ${JSON.stringify(data.data)} 2>/dev/null`);
         } catch (e) {}
+      } else if (data.command === 'openLink') {
+        if (data.url && data.url.startsWith('file://')) {
+          const filePath = data.url.replace(/^file:\/\//, '');
+          vscode.commands.executeCommand('vscode.open', vscode.Uri.file(filePath));
+        } else if (data.url) {
+          vscode.env.openExternal(vscode.Uri.parse(data.url));
+        }
       }
     });
 
