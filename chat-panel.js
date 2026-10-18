@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { exec, execSync } = require('child_process');
 const { parseTranscriptFile } = require('./transcript-parser');
 
 function getNonce() {
@@ -151,17 +151,25 @@ class SessionChatPanelManager {
       } catch (err) {}
     };
 
+    let lastPaneData = '';
     const sendTerminalToWebview = (isInit = false) => {
-      try {
-        if (isInit) {
+      if (!record.sessionName) return;
+      if (isInit) {
+        try {
           execSync(`tmux resize-window -t "${record.sessionName}" -x 120 -y 40 2>/dev/null`);
+        } catch (e) {}
+      }
+      exec(`tmux capture-pane -p -J -S -500 -t "${record.sessionName}" 2>/dev/null`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+        if (err || stdout === undefined) return;
+        if (!isInit && stdout === lastPaneData) {
+          return;
         }
-        const pane = execSync(`tmux capture-pane -p -J -S -3000 -t "${record.sessionName}" 2>/dev/null`, { encoding: 'utf-8' });
+        lastPaneData = stdout;
         record.panel.webview.postMessage({
           type: isInit ? 'termInit' : 'termOutput',
-          data: pane
+          data: stdout
         });
-      } catch (err) {}
+      });
     };
 
     // Fast polling for interactive terminal (100ms)
@@ -341,7 +349,7 @@ class SessionChatPanelManager {
       <div class="tab-switcher">
         <button id="tab-chat" class="tab-btn active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>AI 대화창</button>
         <button id="tab-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>콘솔 터미널</button>
-        <button id="tab-native-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>내장 터미널 ↗</button>
+        <button id="tab-native-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>내장 터미널</button>
       </div>
       <div class="header-actions">
         <button id="btn-sync" title="최신 대화 동기화">🔄</button>
@@ -381,37 +389,31 @@ class SessionChatPanelManager {
     </div>
 
     <div id="view-native-term" class="view-content">
-      <div class="native-term-card">
-        <div class="native-term-header">
-          <div class="native-term-icon-wrap">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-          </div>
-          <div class="native-term-info">
-            <h3 class="native-term-title">VS Code 내장 터미널 (딜레이 0ms)</h3>
-            <p class="native-term-subtitle">GPU 가속 및 네이티브 PTY 엔진을 사용하여 타이핑 딜레이가 없습니다.</p>
-          </div>
+      <div class="native-term-toolbar">
+        <div class="native-term-badge">
+          <span class="native-term-pulse-dot"></span>
+          <span class="native-term-badge-title">내장 터미널 (현재 창)</span>
+          <span class="native-term-badge-session">${displayTitle}</span>
         </div>
-
-        <div class="native-term-session-box">
-          <span class="native-term-label">연결 대상 세션:</span>
-          <span class="native-term-val">${displayTitle}</span>
-        </div>
-
-        <div class="native-term-actions">
-          <button id="btn-open-panel-term" class="btn-primary" type="button">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="2" y1="12" x2="22" y2="12"></line></svg>
-            하단 패널 터미널 포커스
+        <div class="native-term-actions-inline">
+          <button id="btn-open-panel-term" class="btn-tool" type="button" title="하단 패널 터미널로 분리 열기">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="2" y1="12" x2="22" y2="12"></line></svg>하단 패널 분리 ↗
           </button>
-          <button id="btn-open-editor-term" class="btn-secondary" type="button">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-            에디터 영역 탭으로 열기
+          <button id="btn-open-editor-term" class="btn-tool" type="button" title="새 에디터 탭으로 분리 열기">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>에디터 탭 분리 ↗
           </button>
         </div>
+      </div>
 
-        <div class="native-term-tips">
-          <div class="native-term-tip-item">💡 <b>터미널 열기/닫기:</b> <code>Ctrl + &#96;</code> 키로 하단 터미널을 언제든지 토글할 수 있습니다.</div>
-          <div class="native-term-tip-item">⚡ <b>세션 분리(Detach):</b> 작업 후 <code>Ctrl + B</code> 누른 뒤 <code>D</code>를 누르면 세션이 백그라운드에 안전하게 보존됩니다.</div>
-        </div>
+      <div id="native-terminal-container" class="terminal-container">
+        <pre id="native-terminal-output" class="terminal-screen"></pre>
+        <button id="btn-native-term-scroll-bottom" class="term-scroll-btn" style="display:none;">⬇ 최신 터미널 출력으로 이동</button>
+      </div>
+
+      <div class="terminal-input-bar">
+        <span class="term-prompt-icon">$</span>
+        <input id="native-term-cmd-input" type="text" placeholder="명령어를 입력하세요 (예: git status, top, ls, /clear)..." autocomplete="off" />
+        <button id="btn-native-term-send" class="btn-primary" type="button">실행 ↵</button>
       </div>
     </div>
   </div>

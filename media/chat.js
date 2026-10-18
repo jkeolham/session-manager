@@ -631,8 +631,9 @@ if (tabChat && tabTerm) {
       if (viewNativeTerm) viewNativeTerm.classList.add('active');
       viewChat.classList.remove('active');
       viewTerm.classList.remove('active');
-      vscode.postMessage({ command: 'termDeactivate' });
-      vscode.postMessage({ command: 'openNativeTerminal', location: 'panel' });
+      vscode.postMessage({ command: 'termActivate' });
+      const nativeInput = isBrowser ? document.getElementById('native-term-cmd-input') : null;
+      if (nativeInput) nativeInput.focus();
     };
   }
 }
