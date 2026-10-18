@@ -290,7 +290,7 @@ class SessionTreeDataProvider {
   }
 }
 
-function attachToSession(sessionName) {
+function attachToSession(sessionName, location) {
   if (!sessionName) return;
   const terminalName = `tmux: ${sessionName}`;
   const existing = vscode.window.terminals.find(t => t.name === terminalName);
@@ -299,16 +299,20 @@ function attachToSession(sessionName) {
     return existing;
   }
 
-  const terminal = vscode.window.createTerminal({
+  const options = {
     name: terminalName,
     shellPath: 'tmux',
     shellArgs: ['attach-session', '-t', sessionName]
-  });
+  };
+  if (location) {
+    options.location = location;
+  }
+  const terminal = vscode.window.createTerminal(options);
   terminal.show();
   return terminal;
 }
 
-function attachRemoteControl(cid, title) {
+function attachRemoteControl(cid, title, location) {
   if (!cid) return;
   const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
   const existing = vscode.window.terminals.find(t => t.name === terminalName);
@@ -318,12 +322,15 @@ function attachRemoteControl(cid, title) {
   }
 
   const tmuxSessionName = getTmuxSessionName(cid);
-
-  const terminal = vscode.window.createTerminal({
+  const options = {
     name: terminalName,
     shellPath: 'tmux',
     shellArgs: ['new-session', '-A', '-s', tmuxSessionName, `agy --conversation=${cid}`]
-  });
+  };
+  if (location) {
+    options.location = location;
+  }
+  const terminal = vscode.window.createTerminal(options);
   terminal.show();
   return terminal;
 }
@@ -856,7 +863,7 @@ function activate(context) {
   vscode.window.registerTreeDataProvider('sessionManagerView', treeDataProvider);
 
   // Initialize SessionChatPanelManager for rich AI chat & terminal editor tabs
-  const panelManager = new SessionChatPanelManager(context.extensionUri, context.subscriptions, sendTextToTmux);
+  const panelManager = new SessionChatPanelManager(context.extensionUri, context.subscriptions, sendTextToTmux, attachToSession, attachRemoteControl);
   const openPanelCmd = vscode.commands.registerCommand('sessionManager.openSessionPanel', (session) => {
     panelManager.openOrRevealPanel(vscode, session);
   });

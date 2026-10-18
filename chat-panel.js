@@ -64,10 +64,12 @@ function getTranscriptPath(cid, sessionName) {
 }
 
 class SessionChatPanelManager {
-  constructor(extensionUri, subscriptions, sendTextToTmuxFn) {
+  constructor(extensionUri, subscriptions, sendTextToTmuxFn, attachToSessionFn, attachRemoteControlFn) {
     this.extensionUri = extensionUri;
     this.subscriptions = subscriptions;
     this.sendTextToTmux = sendTextToTmuxFn;
+    this.attachToSession = attachToSessionFn;
+    this.attachRemoteControl = attachRemoteControlFn;
     this.panels = new Map(); // key -> { panel, session, sessionName, tPath, lastMtime, limit, isTermActive, pollTimer }
   }
 
@@ -234,6 +236,28 @@ class SessionChatPanelManager {
             sendTerminalToWebview(false);
           } catch (e) {}
         }
+      } else if (data.command === 'openNativeTerminal') {
+        const isEditor = data.location === 'editor';
+        const loc = isEditor ? vscode.TerminalLocation.Editor : vscode.TerminalLocation.Panel;
+        if (this.attachRemoteControl && record.session && record.session.cid) {
+          this.attachRemoteControl(record.session.cid, record.session.title, loc);
+        } else if (this.attachToSession) {
+          this.attachToSession(record.sessionName, loc);
+        } else {
+          const termName = (record.session && record.session.cid) ? `AGY: ${record.session.title || record.session.cid.slice(0, 8)}` : `tmux: ${record.sessionName}`;
+          const existing = vscode.window.terminals.find(t => t.name === termName);
+          if (existing) {
+            existing.show();
+          } else {
+            const terminal = vscode.window.createTerminal({
+              name: termName,
+              shellPath: 'tmux',
+              shellArgs: ['attach-session', '-t', record.sessionName],
+              location: loc
+            });
+            terminal.show();
+          }
+        }
       } else if (data.command === 'termDeactivate') {
         record.isTermActive = false;
         stopTermFastPolling();
@@ -317,6 +341,7 @@ class SessionChatPanelManager {
       <div class="tab-switcher">
         <button id="tab-chat" class="tab-btn active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>AI 대화창</button>
         <button id="tab-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>콘솔 터미널</button>
+        <button id="tab-native-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>내장 터미널 ↗</button>
       </div>
       <div class="header-actions">
         <button id="btn-sync" title="최신 대화 동기화">🔄</button>
@@ -352,6 +377,41 @@ class SessionChatPanelManager {
         <span class="term-prompt-icon">$</span>
         <input id="term-cmd-input" type="text" placeholder="명령어를 입력하세요 (예: git status, top, ls, /clear)..." autocomplete="off" />
         <button id="btn-term-send" class="btn-primary" type="button">실행 ↵</button>
+      </div>
+    </div>
+
+    <div id="view-native-term" class="view-content">
+      <div class="native-term-card">
+        <div class="native-term-header">
+          <div class="native-term-icon-wrap">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          </div>
+          <div class="native-term-info">
+            <h3 class="native-term-title">VS Code 내장 터미널 (딜레이 0ms)</h3>
+            <p class="native-term-subtitle">GPU 가속 및 네이티브 PTY 엔진을 사용하여 타이핑 딜레이가 없습니다.</p>
+          </div>
+        </div>
+
+        <div class="native-term-session-box">
+          <span class="native-term-label">연결 대상 세션:</span>
+          <span class="native-term-val">${displayTitle}</span>
+        </div>
+
+        <div class="native-term-actions">
+          <button id="btn-open-panel-term" class="btn-primary" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+            하단 패널 터미널 포커스
+          </button>
+          <button id="btn-open-editor-term" class="btn-secondary" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            에디터 영역 탭으로 열기
+          </button>
+        </div>
+
+        <div class="native-term-tips">
+          <div class="native-term-tip-item">💡 <b>터미널 열기/닫기:</b> <code>Ctrl + &#96;</code> 키로 하단 터미널을 언제든지 토글할 수 있습니다.</div>
+          <div class="native-term-tip-item">⚡ <b>세션 분리(Detach):</b> 작업 후 <code>Ctrl + B</code> 누른 뒤 <code>D</code>를 누르면 세션이 백그라운드에 안전하게 보존됩니다.</div>
+        </div>
       </div>
     </div>
   </div>

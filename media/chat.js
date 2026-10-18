@@ -597,21 +597,55 @@ if (composerInput) {
   });
 }
 
+const tabNativeTerm = isBrowser ? document.getElementById('tab-native-term') : null;
+const viewNativeTerm = isBrowser ? document.getElementById('view-native-term') : null;
+const btnOpenPanelTerm = isBrowser ? document.getElementById('btn-open-panel-term') : null;
+const btnOpenEditorTerm = isBrowser ? document.getElementById('btn-open-editor-term') : null;
+
 if (tabChat && tabTerm) {
   tabChat.onclick = () => {
     tabChat.classList.add('active');
     tabTerm.classList.remove('active');
+    if (tabNativeTerm) tabNativeTerm.classList.remove('active');
     viewChat.classList.add('active');
     viewTerm.classList.remove('active');
+    if (viewNativeTerm) viewNativeTerm.classList.remove('active');
     vscode.postMessage({ command: 'termDeactivate' });
   };
 
   tabTerm.onclick = () => {
     tabTerm.classList.add('active');
     tabChat.classList.remove('active');
+    if (tabNativeTerm) tabNativeTerm.classList.remove('active');
     viewTerm.classList.add('active');
     viewChat.classList.remove('active');
+    if (viewNativeTerm) viewNativeTerm.classList.remove('active');
     vscode.postMessage({ command: 'termActivate' });
+  };
+
+  if (tabNativeTerm) {
+    tabNativeTerm.onclick = () => {
+      tabNativeTerm.classList.add('active');
+      tabChat.classList.remove('active');
+      tabTerm.classList.remove('active');
+      if (viewNativeTerm) viewNativeTerm.classList.add('active');
+      viewChat.classList.remove('active');
+      viewTerm.classList.remove('active');
+      vscode.postMessage({ command: 'termDeactivate' });
+      vscode.postMessage({ command: 'openNativeTerminal', location: 'panel' });
+    };
+  }
+}
+
+if (btnOpenPanelTerm) {
+  btnOpenPanelTerm.onclick = () => {
+    vscode.postMessage({ command: 'openNativeTerminal', location: 'panel' });
+  };
+}
+
+if (btnOpenEditorTerm) {
+  btnOpenEditorTerm.onclick = () => {
+    vscode.postMessage({ command: 'openNativeTerminal', location: 'editor' });
   };
 }
 
