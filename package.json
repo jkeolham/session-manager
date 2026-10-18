@@ -1,8 +1,8 @@
 {
   "name": "session-manager",
   "displayName": "N100 Session Manager",
-  "description": "Manage and attach to active tmux and agy sessions with 1-click in Antigravity IDE",
-  "version": "1.0.0",
+  "description": "ChatGPT-style rich AI chat & web terminal for active tmux and agy sessions in Antigravity IDE",
+  "version": "1.1.0",
   "publisher": "ttolmany",
   "repository": {
     "type": "git",
