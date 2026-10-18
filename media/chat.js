@@ -315,6 +315,17 @@ function doSend() {
     scrollToBottom();
   }
 
+  // Visual pending indicator
+  const existingPending = document.getElementById('turn-pending-indicator');
+  if (existingPending) existingPending.remove();
+
+  const pendingDiv = document.createElement('div');
+  pendingDiv.id = 'turn-pending-indicator';
+  pendingDiv.className = 'turn-item assistant';
+  pendingDiv.innerHTML = '<div class="markdown-body" style="color:var(--text-muted);font-size:12.5px;padding:4px 0;"><span style="color:#10b981;">●</span> AI 응답을 생성하고 있습니다...</div>';
+  messagesContainer.appendChild(pendingDiv);
+  scrollToBottom();
+
   const sessionSelect = document.getElementById('session-select');
   const target = sessionSelect ? sessionSelect.value : null;
 

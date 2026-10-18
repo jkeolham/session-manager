@@ -204,8 +204,10 @@ class SessionChatPanelManager {
           this.sendTextToTmux(record.sessionName, data.text);
         }
         // Rapid response checks after prompt
-        setTimeout(() => sendTurnsToWebview(false), 600);
-        setTimeout(() => sendTurnsToWebview(false), 1600);
+        setTimeout(() => sendTurnsToWebview(false), 500);
+        setTimeout(() => sendTurnsToWebview(false), 1200);
+        setTimeout(() => sendTurnsToWebview(false), 2500);
+        setTimeout(() => sendTurnsToWebview(false), 4500);
       } else if (data.command === 'termActivate') {
         record.isTermActive = true;
         startTermFastPolling();

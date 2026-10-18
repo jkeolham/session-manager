@@ -27,9 +27,15 @@ function sendTextToTmux(sessionName, text) {
   const tmpFile = path.join(os.tmpdir(), `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.txt`);
   try {
     fs.writeFileSync(tmpFile, text, 'utf-8');
+    // 1. Cancel copy-mode in tmux so input reaches the application process!
+    execSync(`tmux send-keys -t "${sessionName}" -X cancel 2>/dev/null || true`);
+    // 2. Load buffer and paste without -p
     execSync(`tmux load-buffer "${tmpFile}"`);
-    execSync(`tmux paste-buffer -p -t "${sessionName}"`);
-    execSync(`tmux send-keys -t "${sessionName}" Enter`);
+    execSync(`tmux paste-buffer -t "${sessionName}"`);
+    // 3. Small flush delay
+    execSync(`sleep 0.05`);
+    // 4. Send Enter to submit
+    execSync(`tmux send-keys -t "${sessionName}" C-m`);
     return true;
   } catch (err) {
     console.error(`Failed to send text to tmux session ${sessionName}:`, err);
@@ -420,8 +426,10 @@ class PromptComposerViewProvider {
     webviewView.webview.onDidReceiveMessage(async (data) => {
       if (data.command === 'sendPrompt') {
         await this._handleSendPrompt(data.text, data.target);
-        setTimeout(() => this._syncCurrentSessionTurns(false), 600);
-        setTimeout(() => this._syncCurrentSessionTurns(false), 1600);
+        setTimeout(() => this._syncCurrentSessionTurns(false), 500);
+        setTimeout(() => this._syncCurrentSessionTurns(false), 1200);
+        setTimeout(() => this._syncCurrentSessionTurns(false), 2500);
+        setTimeout(() => this._syncCurrentSessionTurns(false), 4500);
       } else if (data.command === 'requestSessions') {
         this.updateSessions(this.treeDataProvider.cachedData);
         this.syncActiveTerminal(vscode.window.activeTerminal);
@@ -582,21 +590,26 @@ class PromptComposerViewProvider {
     let targetLabel = null;
 
     if (!targetVal || targetVal === '__active__') {
-      const res = resolveTmuxSessionFromTerminal(vscode.window.activeTerminal, this.treeDataProvider.cachedData);
-      if (res) {
-        targetSession = res.sessionName;
-        targetLabel = res.label;
+      if (this._currentSessionName) {
+        targetSession = this._currentSessionName;
+        targetLabel = this._currentCid ? `[${this._currentCid.slice(0, 4)}]` : targetSession;
       } else {
-        const rc = this.treeDataProvider.cachedData?.remoteControl;
-        const agy = this.treeDataProvider.cachedData?.agy;
-        if (rc && rc.length > 0) {
-          targetSession = getTmuxSessionName(rc[0].cid);
-          targetLabel = `[${rc[0].cid.slice(0, 4)}] ${rc[0].title || rc[0].cid}`;
-          attachRemoteControl(rc[0].cid, rc[0].title);
-        } else if (agy && agy.length > 0) {
-          targetSession = agy[0].name;
-          targetLabel = agy[0].name;
-          attachToSession(targetSession);
+        const res = resolveTmuxSessionFromTerminal(vscode.window.activeTerminal, this.treeDataProvider.cachedData);
+        if (res) {
+          targetSession = res.sessionName;
+          targetLabel = res.label;
+        } else {
+          const rc = this.treeDataProvider.cachedData?.remoteControl;
+          const agy = this.treeDataProvider.cachedData?.agy;
+          if (rc && rc.length > 0) {
+            targetSession = getTmuxSessionName(rc[0].cid);
+            targetLabel = `[${rc[0].cid.slice(0, 4)}] ${rc[0].title || rc[0].cid}`;
+            attachRemoteControl(rc[0].cid, rc[0].title);
+          } else if (agy && agy.length > 0) {
+            targetSession = agy[0].name;
+            targetLabel = agy[0].name;
+            attachToSession(targetSession);
+          }
         }
       }
     } else if (targetVal.startsWith('rc:')) {
