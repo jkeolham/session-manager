@@ -314,6 +314,12 @@ async function deleteRemoteControl(cid, title, treeDataProvider) {
 }
 
 function activate(context) {
+  // Ensure tmux mouse scrolling and large history limit are enabled globally
+  try {
+    exec('tmux set -g mouse on 2>/dev/null || true');
+    exec('tmux set -g history-limit 50000 2>/dev/null || true');
+  } catch (e) {}
+
   console.log('Session Manager extension is now active!');
 
   const treeDataProvider = new SessionTreeDataProvider();
