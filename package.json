@@ -18,7 +18,8 @@
     "onView:sessionManagerView",
     "onView:sessionPromptComposerView",
     "onCommand:sessionManager.sendPrompt",
-    "onCommand:sessionManager.focusComposer"
+    "onCommand:sessionManager.focusComposer",
+    "onCommand:sessionManager.openSessionPanel"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -45,6 +46,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "sessionManager.openSessionPanel",
+        "title": "Open Session (AI Chat & Terminal)",
+        "icon": "$(comment-discussion)"
+      },
       {
         "command": "sessionManager.attach",
         "title": "Attach to Session",

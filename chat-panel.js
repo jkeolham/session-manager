@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const { parseTranscriptFile } = require('./transcript-parser');
 
 function getNonce() {
@@ -24,10 +25,26 @@ function getTranscriptPath(cid) {
 }
 
 class SessionChatPanelManager {
-  constructor(extensionUri, subscriptions) {
+  constructor(extensionUri, subscriptions, sendTextToTmuxFn) {
     this.extensionUri = extensionUri;
     this.subscriptions = subscriptions;
+    this.sendTextToTmux = sendTextToTmuxFn;
     this.panels = new Map(); // key -> WebviewPanel
+  }
+
+  syncTranscript(cid) {
+    const key = `rc_${cid.slice(0, 8)}`;
+    const panel = this.panels.get(key);
+    if (panel) {
+      const tPath = getTranscriptPath(cid);
+      const parsed = parseTranscriptFile(tPath, 40);
+      panel.webview.postMessage({
+        type: 'initTurns',
+        turns: parsed.turns,
+        totalCount: parsed.totalCount,
+        hasEarlier: parsed.hasEarlier
+      });
+    }
   }
 
   openOrRevealPanel(vscode, session) {
@@ -59,6 +76,37 @@ class SessionChatPanelManager {
     }, null, this.subscriptions);
 
     panel.webview.html = this.getHtmlForWebview(panel.webview, session, title);
+
+    panel.webview.onDidReceiveMessage((data) => {
+      let sessionName = session.cid ? `rc_${session.cid.slice(0, 8)}` : session.name;
+
+      if (data.command === 'sendPrompt') {
+        if (this.sendTextToTmux) {
+          this.sendTextToTmux(sessionName, data.text);
+        }
+      } else if (data.command === 'syncTurns') {
+        if (session.cid) {
+          const tPath = getTranscriptPath(session.cid);
+          const parsed = parseTranscriptFile(tPath, 40);
+          panel.webview.postMessage({
+            type: 'initTurns',
+            turns: parsed.turns,
+            totalCount: parsed.totalCount,
+            hasEarlier: parsed.hasEarlier,
+            session
+          });
+        }
+      } else if (data.command === 'termActivate') {
+        try {
+          const pane = execSync(`tmux capture-pane -p -t "${sessionName}" 2>/dev/null`, { encoding: 'utf-8' });
+          panel.webview.postMessage({ type: 'termInit', data: pane });
+        } catch (e) {}
+      } else if (data.command === 'termData') {
+        try {
+          execSync(`tmux send-keys -t "${sessionName}" -l ${JSON.stringify(data.data)} 2>/dev/null`);
+        } catch (e) {}
+      }
+    });
 
     if (session.cid) {
       const tPath = getTranscriptPath(session.cid);
@@ -123,7 +171,9 @@ class SessionChatPanelManager {
     </div>
 
     <div id="view-term" class="view-content">
-      <div id="terminal-container" class="terminal-container"></div>
+      <div id="terminal-container" class="terminal-container">
+        <pre id="terminal-output" style="color:#f4f4f5;font-family:var(--editor-font);font-size:12px;line-height:1.4;white-space:pre-wrap;height:100%;overflow-y:auto;"></pre>
+      </div>
     </div>
   </div>
 

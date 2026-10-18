@@ -1,3 +1,4 @@
+const { SessionChatPanelManager } = require('./chat-panel');
 const vscode = require('vscode');
 const { getCategorizedSessions } = require('./session-discovery');
 const { exec, execSync, execFileSync } = require('child_process');
@@ -120,9 +121,9 @@ class RemoteControlItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon('radio-tower');
 
     this.command = {
-      command: 'sessionManager.attachRemoteControl',
-      title: 'Attach to Remote Control Session',
-      arguments: [session.cid, session.title]
+      command: 'sessionManager.openSessionPanel',
+      title: 'Open AI Session',
+      arguments: [session]
     };
   }
 }
@@ -172,9 +173,9 @@ class SessionItem extends vscode.TreeItem {
     }
 
     this.command = {
-      command: 'sessionManager.attach',
-      title: 'Attach to Session',
-      arguments: [session.name]
+      command: 'sessionManager.openSessionPanel',
+      title: 'Open Session Panel',
+      arguments: [session]
     };
   }
 }
@@ -1039,6 +1040,12 @@ function activate(context) {
   const treeDataProvider = new SessionTreeDataProvider();
   vscode.window.registerTreeDataProvider('sessionManagerView', treeDataProvider);
 
+  // Initialize SessionChatPanelManager for rich AI chat & terminal editor tabs
+  const panelManager = new SessionChatPanelManager(context.extensionUri, context.subscriptions, sendTextToTmux);
+  const openPanelCmd = vscode.commands.registerCommand('sessionManager.openSessionPanel', (session) => {
+    panelManager.openOrRevealPanel(vscode, session);
+  });
+
   // Register Webview View Provider for Prompt Composer
   const composerProvider = new PromptComposerViewProvider(context.extensionUri, treeDataProvider);
   const composerViewReg = vscode.window.registerWebviewViewProvider(
@@ -1162,6 +1169,16 @@ function activate(context) {
   }, 4000);
 
   const homeDir = process.env.HOME || '/home/ttolmany';
+  const transcriptWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-ide/brain'), '*/.system_generated/logs/transcript.jsonl')
+  );
+  transcriptWatcher.onDidChange((uri) => {
+    const parts = uri.fsPath.split(path.sep);
+    const brainIdx = parts.indexOf('brain');
+    if (brainIdx !== -1 && parts[brainIdx + 1]) {
+      panelManager.syncTranscript(parts[brainIdx + 1]);
+    }
+  });
   const watcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-cli'), 'conversation_summaries.db*')
   );
@@ -1169,10 +1186,10 @@ function activate(context) {
   watcher.onDidCreate(() => treeDataProvider.smartRefresh(false));
 
   context.subscriptions.push(
-    attachCmd, attachRcCmd, reloadRcCmd, deleteRcCmd, refreshCmd, newAgyCmd, killCmd,
+    openPanelCmd, attachCmd, attachRcCmd, reloadRcCmd, deleteRcCmd, refreshCmd, newAgyCmd, killCmd,
     sendPromptCmd, focusComposerCmd,
     composerViewReg, terminalChangeSub,
-    watcher,
+    watcher, transcriptWatcher,
     { dispose: () => clearInterval(interval) }
   );
 }
