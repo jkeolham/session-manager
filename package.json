@@ -61,6 +61,11 @@
         "command": "sessionManager.kill",
         "title": "Kill Session",
         "icon": "$(trash)"
+      },
+      {
+        "command": "sessionManager.reloadRemoteControl",
+        "title": "Reload Session (Sync Latest Turns)",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
@@ -86,6 +91,11 @@
           "command": "sessionManager.kill",
           "when": "viewItem == sessionItem",
           "group": "inline@2"
+        },
+        {
+          "command": "sessionManager.reloadRemoteControl",
+          "when": "viewItem == remoteControlItem",
+          "group": "inline@1"
         }
       ]
     }

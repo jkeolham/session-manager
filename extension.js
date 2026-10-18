@@ -1,19 +1,18 @@
 const vscode = require('vscode');
-const { exec } = require('child_process');
 const { getCategorizedSessions } = require('./session-discovery');
+const { exec, execSync } = require('child_process');
 
 class CategoryItem extends vscode.TreeItem {
-  constructor(label, key, count, defaultExpanded = false) {
+  constructor(label, key, count, expanded = false) {
     super(
-      label,
-      defaultExpanded
+      `${label} (${count})`,
+      expanded
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed
     );
     this.key = key;
-    this.description = `(${count})`;
     this.contextValue = 'categoryItem';
-    
+
     if (key === 'remoteControl') {
       this.iconPath = new vscode.ThemeIcon('cloud');
     } else if (key === 'agy') {
@@ -30,7 +29,8 @@ class CategoryItem extends vscode.TreeItem {
 
 class RemoteControlItem extends vscode.TreeItem {
   constructor(session) {
-    super(session.title || 'Unnamed Session', vscode.TreeItemCollapsibleState.None);
+    const shortCid = (session.cid || '').slice(0, 4);
+    super(`${session.title || 'Unnamed Session'} [${shortCid}]`, vscode.TreeItemCollapsibleState.None);
     this.session = session;
     this.description = `${session.time_str} • ${session.steps} steps`;
 
@@ -38,9 +38,11 @@ class RemoteControlItem extends vscode.TreeItem {
       `Title: ${session.title}`,
       `Conversation ID: ${session.cid}`,
       `Last Modified: ${session.time_str}`,
+      `Total Steps: ${session.steps}`,
       `Database Size: ${session.size_kb} KB`,
       '',
-      '👉 Click to attach terminal (agy --conversation)'
+      '👉 Click to attach terminal (agy --conversation)',
+      '🔄 Click sync icon to reload latest turns from phone/hub'
     ];
     this.tooltip = lines.join('\n');
     this.contextValue = 'remoteControlItem';
@@ -60,7 +62,10 @@ class SessionItem extends vscode.TreeItem {
     this.session = session;
     this.type = type;
 
-    if (session.title) {
+    const isInactive = session.cmd === 'bash' || session.cmd === 'sh';
+    if (isInactive) {
+      this.description = `[inactive / shell] PID ${session.pid}`;
+    } else if (session.title) {
       this.description = `${session.title} (${session.cmd || 'idle'})`;
     } else {
       this.description = `PID ${session.pid} [${session.cmd || 'idle'}]`;
@@ -70,6 +75,9 @@ class SessionItem extends vscode.TreeItem {
       `Session: ${session.name}`,
       `Command: ${session.cmd} (PID: ${session.pid})`
     ];
+    if (isInactive) {
+      lines.push('⚠️ Inactive session (at shell prompt). For active agent sessions, use Remote Control Sessions above.');
+    }
     if (session.title) {
       lines.push(`Title: ${session.title}`);
     }
@@ -82,7 +90,7 @@ class SessionItem extends vscode.TreeItem {
     this.contextValue = 'sessionItem';
 
     if (type === 'agy') {
-      this.iconPath = new vscode.ThemeIcon('sparkle');
+      this.iconPath = isInactive ? new vscode.ThemeIcon('terminal') : new vscode.ThemeIcon('sparkle');
     } else if (type === 'claude') {
       this.iconPath = new vscode.ThemeIcon('terminal-view-icon');
     } else if (type === 'codex') {
@@ -177,17 +185,28 @@ function attachToSession(sessionName) {
   terminal.show();
 }
 
+function getTmuxSessionName(cid) {
+  return `rc_${(cid || '').slice(0, 8)}`;
+}
+
 function attachRemoteControl(cid, title) {
   if (!cid) return;
   const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
   const existing = vscode.window.terminals.find(t => t.name === terminalName);
   if (existing) {
     existing.show();
+    vscode.window.showInformationMessage(
+      `Showing "${terminalName}". Chatted on phone? Click "Reload" to sync latest turns.`,
+      'Reload'
+    ).then(sel => {
+      if (sel === 'Reload') {
+        reloadRemoteControl(cid, title);
+      }
+    });
     return;
   }
 
-  const safeSlug = (title || 'conv').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15);
-  const tmuxSessionName = `rc_${safeSlug}_${cid.slice(0, 4)}`;
+  const tmuxSessionName = getTmuxSessionName(cid);
 
   const terminal = vscode.window.createTerminal({
     name: terminalName,
@@ -195,6 +214,29 @@ function attachRemoteControl(cid, title) {
     shellArgs: ['new-session', '-A', '-s', tmuxSessionName, `agy --conversation=${cid}`]
   });
   terminal.show();
+}
+
+function reloadRemoteControl(cid, title) {
+  if (!cid) return;
+  const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
+  const existing = vscode.window.terminals.find(t => t.name === terminalName);
+  if (existing) {
+    existing.dispose();
+  }
+
+  const tmuxSessionName = getTmuxSessionName(cid);
+
+  try {
+    execSync(`tmux kill-session -t "${tmuxSessionName}" 2>/dev/null || true`);
+  } catch (e) {}
+
+  const terminal = vscode.window.createTerminal({
+    name: terminalName,
+    shellPath: 'tmux',
+    shellArgs: ['new-session', '-A', '-s', tmuxSessionName, `agy --conversation=${cid}`]
+  });
+  terminal.show();
+  vscode.window.showInformationMessage(`Reloaded session "${title || cid.slice(0, 8)}" with latest turns.`);
 }
 
 function activate(context) {
@@ -213,6 +255,19 @@ function activate(context) {
 
   const attachRcCmd = vscode.commands.registerCommand('sessionManager.attachRemoteControl', (cid, title) => {
     attachRemoteControl(cid, title);
+  });
+
+  const reloadRcCmd = vscode.commands.registerCommand('sessionManager.reloadRemoteControl', (arg) => {
+    let cid, title;
+    if (arg && arg.session) {
+      cid = arg.session.cid;
+      title = arg.session.title;
+    } else if (typeof arg === 'string') {
+      cid = arg;
+    }
+    if (cid) {
+      reloadRemoteControl(cid, title);
+    }
   });
 
   const refreshCmd = vscode.commands.registerCommand('sessionManager.refresh', () => {
@@ -269,7 +324,7 @@ function activate(context) {
     treeDataProvider.refresh();
   }, 30000);
 
-  context.subscriptions.push(attachCmd, attachRcCmd, refreshCmd, newAgyCmd, killCmd, {
+  context.subscriptions.push(attachCmd, attachRcCmd, reloadRcCmd, refreshCmd, newAgyCmd, killCmd, {
     dispose: () => clearInterval(interval)
   });
 }
