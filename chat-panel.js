@@ -262,7 +262,7 @@ class SessionChatPanelManager {
         <div id="empty-state" class="empty-state">대화 기록을 불러오는 중입니다...</div>
       </div>
       <div class="composer-container">
-        <textarea id="composer-input" placeholder="메시지를 입력하세요 (마우스 드래그 선택/삭제, Shift+방향키, Ctrl+C/V/X 지원)..."></textarea>
+        <textarea id="composer-input" placeholder="Ask anything, @ to mention, / for actions... (Shift+Enter 줄바꿈)"></textarea>
         <div class="composer-footer">
           <label class="toggle-wrap">
             <input type="checkbox" id="enter-send-toggle" checked />

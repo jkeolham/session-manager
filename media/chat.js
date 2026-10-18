@@ -44,6 +44,29 @@ function cleanUserMessageText(raw) {
   return text.trim();
 }
 
+function parseMarkdownAlerts(text, alertBlocks) {
+  const alertRegex = /^>[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\r?\n((?:^>[ \t]?.*(?:\r?\n|$))*)/gim;
+
+  return text.replace(alertRegex, (match, type, body) => {
+    const rawLines = body.split(/\r?\n/).map(line => line.replace(/^>[ \t]?/, '')).join('\n').trim();
+    const alertType = type.toUpperCase();
+    const id = `__ALERT_BLOCK_${alertBlocks.length}__`;
+    alertBlocks.push({ type: alertType, raw: rawLines });
+    return `\n\n${id}\n\n`;
+  });
+}
+
+function parseMarkdownBlockquotes(text, quoteBlocks) {
+  const bqRegex = /((?:^>[ \t]?.*(?:\r?\n|$))+)/gm;
+  return text.replace(bqRegex, (match) => {
+    const lines = match.split(/\r?\n/).map(line => line.replace(/^>[ \t]?/, '')).join('\n').trim();
+    if (!lines) return '';
+    const id = `__QUOTE_BLOCK_${quoteBlocks.length}__`;
+    quoteBlocks.push(lines);
+    return `\n\n${id}\n\n`;
+  });
+}
+
 function parseMarkdownTables(text, tableBlocks) {
   const tableRegex = /((?:^[ \t]*\|.+?\|[ \t]*\r?\n)+(?:^[ \t]*\|[\s\-:|]+?\|[ \t]*\r?\n)(?:^[ \t]*\|.+?\|[ \t]*(?:\r?\n|$))+)/gm;
 
@@ -81,6 +104,8 @@ function parseMarkdownTables(text, tableBlocks) {
 
     const formatCell = (str) => {
       let s = escapeHtml(str);
+      // Unescape <br> or <br/> so line breaks inside cells render as actual HTML line breaks!
+      s = s.replace(/&lt;br\s*\/?&gt;/gi, '<br/>');
       s = s.replace(/`([^`]+)`/g, '<code class="code-pill">$1</code>');
       s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       s = s.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<em>$1</em>');
@@ -95,8 +120,8 @@ function parseMarkdownTables(text, tableBlocks) {
     }
     html += '</tr></thead><tbody>';
 
-    for (let r = 2; r < rawLines.length; r++) {
-      const cols = parseRow(rawLines[r]);
+    for (let r = 0; r < rowsData.length; r++) {
+      const cols = rowsData[r];
       html += '<tr>';
       for (let c = 0; c < headerCols.length; c++) {
         const align = alignments[c] || 'left';
@@ -124,28 +149,31 @@ function renderMarkdown(rawText) {
     return `\n\n${id}\n\n`;
   });
 
-  // 2. Extract markdown tables
+  // 2. Extract GitHub Alerts (> [!TIP])
+  const alertBlocks = [];
+  text = parseMarkdownAlerts(text, alertBlocks);
+
+  // 3. Extract standard blockquotes (> quote)
+  const quoteBlocks = [];
+  text = parseMarkdownBlockquotes(text, quoteBlocks);
+
+  // 4. Extract markdown tables
   const tableBlocks = [];
   text = parseMarkdownTables(text, tableBlocks);
 
-  // 3. Escape HTML on remaining text
+  // 5. Escape HTML on remaining text
   text = escapeHtml(text);
 
-  // 4. Headings
+  // 6. Headings
   text = text.replace(/^### (.*$)/gim, '<h3 class="chat-h3">$1</h3>');
   text = text.replace(/^## (.*$)/gim, '<h2 class="chat-h2">$1</h2>');
   text = text.replace(/^# (.*$)/gim, '<h1 class="chat-h1">$1</h1>');
 
-  // 5. Dividers
+  // 7. Dividers
   text = text.replace(/^(?:---|[*]{3}|_{3})\s*$/gim, '<hr class="chat-divider" />');
 
-  // 6. Blockquotes
-  text = text.replace(/^\s*&gt;\s+(.*)$/gim, '<blockquote class="chat-quote">$1</blockquote>');
-
-  // 7. Links
+  // 8. Links & pills
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="chat-link" data-url="$2">$1</a>');
-
-  // 8. Inline code pills
   text = text.replace(/`([^`]+)`/g, '<code class="code-pill">$1</code>');
 
   // 9. Bullet lists
@@ -157,22 +185,43 @@ function renderMarkdown(rawText) {
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<em>$1</em>');
 
-  // 11. Clean block paragraph handling
+  // 11. Paragraph handling
   const blocks = text.split(/\n\n+/).map(b => b.trim()).filter(Boolean);
   const processed = blocks.map(b => {
-    if (/^(?:<h[1-3]|<hr|<ul|<blockquote|__TABLE_BLOCK_|__CODE_BLOCK_)/.test(b)) {
+    if (/^(?:<h[1-3]|<hr|<ul|__ALERT_BLOCK_|__QUOTE_BLOCK_|__TABLE_BLOCK_|__CODE_BLOCK_)/.test(b)) {
       return b;
     }
     return '<p class="chat-p">' + b.replace(/\n/g, '<br/>') + '</p>';
   });
   text = processed.join('\n');
 
-  // 12. Restore tables
+  // 12. Restore Alert Blocks (Antigravity Style)
+  for (let i = 0; i < alertBlocks.length; i++) {
+    const { type, raw } = alertBlocks[i];
+    const typeClass = type.toLowerCase();
+    const renderedBody = renderMarkdown(raw);
+    const alertHtml = `
+      <div class="chat-alert alert-${typeClass}">
+        <div class="alert-type">${type}</div>
+        <div class="alert-content">${renderedBody}</div>
+      </div>`;
+    text = text.replace(`__ALERT_BLOCK_${i}__`, alertHtml);
+  }
+
+  // 13. Restore Standard Blockquotes (Enclosed Callout Card)
+  for (let i = 0; i < quoteBlocks.length; i++) {
+    const raw = quoteBlocks[i];
+    const renderedBody = renderMarkdown(raw);
+    const bqHtml = `<blockquote class="chat-quote">${renderedBody}</blockquote>`;
+    text = text.replace(`__QUOTE_BLOCK_${i}__`, bqHtml);
+  }
+
+  // 14. Restore Tables
   for (let i = 0; i < tableBlocks.length; i++) {
     text = text.replace(`__TABLE_BLOCK_${i}__`, tableBlocks[i]);
   }
 
-  // 13. Restore code blocks
+  // 15. Restore Code Blocks
   for (let i = 0; i < codeBlocks.length; i++) {
     const { lang, code } = codeBlocks[i];
     const blockHtml = `

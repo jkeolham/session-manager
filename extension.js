@@ -649,7 +649,7 @@ class PromptComposerViewProvider {
     </div>
 
     <div class="composer-container">
-      <textarea id="composer-input" placeholder="메시지를 입력하세요 (Shift+Enter 줄바꿈)..."></textarea>
+      <textarea id="composer-input" placeholder="Ask anything, @ to mention, / for actions... (Shift+Enter 줄바꿈)"></textarea>
       <div class="composer-footer">
         <label class="toggle-wrap">
           <input type="checkbox" id="enter-send-toggle" checked />
