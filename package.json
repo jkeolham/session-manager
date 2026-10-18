@@ -1,0 +1,86 @@
+{
+  "name": "session-manager",
+  "displayName": "N100 Session Manager",
+  "description": "Manage and attach to active tmux and agy sessions with 1-click in Antigravity IDE",
+  "version": "1.0.0",
+  "publisher": "ttolmany",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ttolmany/session-manager"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onView:sessionManagerView"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sessionManagerContainer",
+          "title": "Sessions",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sessionManagerContainer": [
+        {
+          "id": "sessionManagerView",
+          "name": "N100 Sessions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sessionManager.attach",
+        "title": "Attach to Session",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "sessionManager.refresh",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sessionManager.newAgy",
+        "title": "New AGY Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sessionManager.kill",
+        "title": "Kill Session",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sessionManager.refresh",
+          "when": "view == sessionManagerView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sessionManager.newAgy",
+          "when": "view == sessionManagerView",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sessionManager.attach",
+          "when": "viewItem == sessionItem",
+          "group": "inline@1"
+        },
+        {
+          "command": "sessionManager.kill",
+          "when": "viewItem == sessionItem",
+          "group": "inline@2"
+        }
+      ]
+    }
+  }
+}
