@@ -939,3 +939,105 @@ body.is-sidebar #composer-input {
   border-radius: 6px;
   flex-shrink: 0;
 }
+
+
+/* Antigravity File Extension Badges */
+.file-ext-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  margin: 0 4px;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+}
+
+.file-ext-badge.ext-js,
+.file-ext-badge.ext-ts {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.file-ext-badge.ext-py {
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.file-ext-badge.ext-json {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.file-ext-badge.ext-css,
+.file-ext-badge.ext-html {
+  background: rgba(236, 72, 153, 0.18);
+  color: #f472b6;
+  border: 1px solid rgba(236, 72, 153, 0.35);
+}
+
+.file-ext-badge.ext-md {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.analyzed-filename {
+  color: #d4d4d8;
+  font-weight: 400;
+}
+
+.analyzed-range {
+  color: #71717a;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11.5px;
+  margin-left: 2px;
+}
+
+/* Active Working Indicator matching Antigravity */
+.working-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #9e9ea7;
+  font-size: 13px;
+  margin: 4px 0 2px 2px;
+  user-select: none;
+}
+
+.working-spinner {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #3b82f6;
+  display: inline-block;
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.7);
+  }
+}
+
+/* Subtle Earlier Turns Loader */
+.loading-earlier-bar {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted, #71717a);
+  padding: 6px 0;
+  width: 100%;
+}

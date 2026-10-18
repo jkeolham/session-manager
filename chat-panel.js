@@ -198,7 +198,19 @@ class SessionChatPanelManager {
         sendTurnsToWebview(true);
       } else if (data.command === 'loadMoreTurns') {
         record.limit += 50;
-        sendTurnsToWebview(true);
+        if (!record.tPath) {
+          record.tPath = resolveTranscriptPath(record.session.cid, record.sessionName);
+        }
+        if (record.tPath && fs.existsSync(record.tPath)) {
+          const parsed = parseTranscriptFile(record.tPath, record.limit);
+          record.panel.webview.postMessage({
+            type: 'moreTurnsLoaded',
+            turns: parsed.turns,
+            totalCount: parsed.totalCount,
+            hasEarlier: parsed.hasEarlier,
+            session: record.session
+          });
+        }
       } else if (data.command === 'sendPrompt') {
         if (this.sendTextToTmux) {
           this.sendTextToTmux(record.sessionName, data.text);

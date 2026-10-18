@@ -239,6 +239,10 @@ function renderMarkdown(rawText) {
 }
 
 function formatDuration(sec) {
+  if (sec >= 180) {
+    const m = Math.round(sec / 60);
+    return `${m}m`;
+  }
   if (sec >= 60) {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
@@ -247,134 +251,224 @@ function formatDuration(sec) {
   return `${sec}s`;
 }
 
+function formatToolStep(tc) {
+  const isFailed = tc.status === 'ERROR' || tc.status === 'FAILED';
+  const args = tc.args || {};
+  const toolName = tc.name || tc.tool_name || 'tool';
+
+  if (toolName === 'view_file' && args.AbsolutePath) {
+    const pathStr = String(args.AbsolutePath).replace(/["']/g, '');
+    const filename = pathStr.split('/').pop() || 'file';
+    const ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
+    let lineRange = '';
+    if (args.StartLine && args.EndLine) {
+      lineRange = `#L${args.StartLine}-${args.EndLine}`;
+    } else if (args.StartLine) {
+      lineRange = `#L${args.StartLine}`;
+    }
+    return {
+      type: 'analyzed',
+      ext,
+      filename,
+      lineRange,
+      args,
+      isFailed
+    };
+  }
+
+  let label = tc.label || tc.toolSummary || tc.toolAction;
+  if (!label) {
+    if (toolName === 'run_command' && args.CommandLine) {
+      label = 'Run command: ' + String(args.CommandLine).slice(0, 50).replace(/["']/g, '');
+    } else {
+      label = toolName;
+    }
+  }
+
+  return {
+    type: 'tool_action',
+    label,
+    args,
+    isFailed
+  };
+}
+
+function renderSubStepHtml(step) {
+  if (step.type === 'analyzed') {
+    return `
+      <details class="sub-step-indicator ${step.isFailed ? 'failed' : ''}">
+        <summary class="sub-step-summary">
+          <span class="sub-step-label">
+            Analyzed <span class="file-ext-badge ext-${escapeHtml(step.ext)}">${escapeHtml(step.ext.toUpperCase())}</span>
+            <span class="analyzed-filename">${escapeHtml(step.filename)}</span>
+            <span class="analyzed-range">${escapeHtml(step.lineRange)}</span>
+          </span>
+          <span class="step-chevron">›</span>
+        </summary>
+        <div class="sub-step-body"><pre><code>${escapeHtml(JSON.stringify(step.args, null, 2))}</code></pre></div>
+      </details>`;
+  } else if (step.type === 'tool_action') {
+    const argsDisplay = typeof step.args === 'object' ? JSON.stringify(step.args, null, 2) : String(step.args || '');
+    return `
+      <details class="sub-step-indicator ${step.isFailed ? 'failed' : ''}">
+        <summary class="sub-step-summary">
+          <span class="sub-step-label">${escapeHtml(step.label)}</span>
+          ${step.isFailed ? '<span class="step-status-failed">실패</span>' : ''}
+          <span class="step-chevron">›</span>
+        </summary>
+        <div class="sub-step-body"><pre><code>${escapeHtml(argsDisplay)}</code></pre></div>
+      </details>`;
+  } else if (step.type === 'thought') {
+    return `
+      <details class="sub-step-indicator thinking">
+        <summary class="sub-step-summary">
+          <span class="sub-step-label">Thought for ${escapeHtml(step.duration)}</span>
+          <span class="step-chevron">›</span>
+        </summary>
+        <div class="sub-step-body thinking-body">${escapeHtml(step.thinking).replace(/\n/g, '<br/>')}</div>
+      </details>`;
+  }
+  return '';
+}
+
 function groupConsecutiveTurns(turns) {
   if (!Array.isArray(turns) || turns.length === 0) return [];
-  const grouped = [];
-  let currentAssistant = null;
 
-  function flushAssistant() {
-    if (!currentAssistant) return;
-    const bundledItems = [];
-    let toolBuffer = [];
-    let pendingThought = null;
+  const partitions = [];
+  let currentGroup = null;
 
-    function flushTools() {
-      if (toolBuffer.length === 0) return;
-      if (toolBuffer.length === 1) {
-        if (pendingThought) {
-          const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
-          bundledItems.push({
-            type: 'thought',
-            thinking: pendingThought.thinking,
-            duration: formatDuration(sec)
-          });
-          pendingThought = null;
-        }
-        bundledItems.push({
-          type: 'single_tool',
-          tool: toolBuffer[0].tool,
-          timestamp: toolBuffer[0].timestamp
-        });
-      } else {
-        const estSec = Math.max(10, toolBuffer.length * 9);
-        bundledItems.push({
-          type: 'worked',
-          duration: formatDuration(estSec),
-          actions: toolBuffer.map(t => t.tool),
-          initialThought: pendingThought ? pendingThought.thinking : null
-        });
-        pendingThought = null;
-      }
-      toolBuffer = [];
-    }
-
-    for (let i = 0; i < currentAssistant.items.length; i++) {
-      const it = currentAssistant.items[i];
-      if (it.type === 'thought') {
-        if (toolBuffer.length === 0 && i < currentAssistant.items.length - 1 && currentAssistant.items[i + 1].type === 'tool') {
-          pendingThought = it;
-        } else {
-          flushTools();
-          if (pendingThought) {
-            const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
-            bundledItems.push({
-              type: 'thought',
-              thinking: pendingThought.thinking,
-              duration: formatDuration(sec)
-            });
-            pendingThought = null;
-          }
-          const sec = Math.max(2, Math.round((it.thinking || '').length / 125));
-          bundledItems.push({
-            type: 'thought',
-            thinking: it.thinking,
-            duration: formatDuration(sec)
-          });
-        }
-      } else if (it.type === 'tool') {
-        toolBuffer.push(it);
-      } else if (it.type === 'content') {
-        flushTools();
-        if (pendingThought) {
-          const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
-          bundledItems.push({
-            type: 'thought',
-            thinking: pendingThought.thinking,
-            duration: formatDuration(sec)
-          });
-          pendingThought = null;
-        }
-        const isInterim = i < currentAssistant.items.length - 1;
-        bundledItems.push({
-          type: isInterim ? 'interim' : 'content',
-          content: it.content
-        });
-      }
-    }
-    flushTools();
-    if (pendingThought) {
-      const sec = Math.max(2, Math.round((pendingThought.thinking || '').length / 125));
-      bundledItems.push({
-        type: 'thought',
-        thinking: pendingThought.thinking,
-        duration: formatDuration(sec)
-      });
-      pendingThought = null;
-    }
-
-    currentAssistant.items = bundledItems;
-    grouped.push(currentAssistant);
-    currentAssistant = null;
-  }
-
-  for (const turn of turns) {
-    if (turn.role === 'user') {
-      flushAssistant();
-      grouped.push(turn);
+  for (let i = 0; i < turns.length; i++) {
+    const t = turns[i];
+    if (t.role === 'user') {
+      if (currentGroup) partitions.push(currentGroup);
+      partitions.push({ role: 'user', turn: t });
+      currentGroup = null;
     } else {
-      if (!currentAssistant) {
-        currentAssistant = {
-          role: 'assistant',
-          index: turn.index,
-          items: [],
-          timestamp: turn.timestamp
-        };
+      if (!currentGroup) {
+        currentGroup = { role: 'assistant', turns: [] };
       }
-      if (turn.thinking && turn.thinking.trim().length > 0) {
-        currentAssistant.items.push({ type: 'thought', thinking: turn.thinking });
-      }
-      if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
-        for (const tc of turn.toolCalls) {
-          currentAssistant.items.push({ type: 'tool', tool: tc });
-        }
-      }
-      if (turn.content && turn.content.trim().length > 0) {
-        currentAssistant.items.push({ type: 'content', content: turn.content });
-      }
+      currentGroup.turns.push(t);
     }
   }
-  flushAssistant();
-  return grouped;
+  if (currentGroup) partitions.push(currentGroup);
+
+  const result = [];
+
+  for (let pIdx = 0; pIdx < partitions.length; pIdx++) {
+    const p = partitions[pIdx];
+    if (p.role === 'user') {
+      result.push(p.turn);
+      continue;
+    }
+
+    const assistantTurns = p.turns;
+    const isLastPartition = (pIdx === partitions.length - 1);
+
+    const steps = [];
+    let finalContent = null;
+    let interimNotes = [];
+    let startTime = null;
+    let endTime = null;
+
+    for (let i = 0; i < assistantTurns.length; i++) {
+      const at = assistantTurns[i];
+      const ts = at.timestamp || at.createdAt;
+      if (ts) {
+        const d = new Date(ts);
+        if (!isNaN(d.getTime())) {
+          if (!startTime) startTime = d;
+          endTime = d;
+        }
+      }
+
+      if (at.thinking && at.thinking.trim().length > 0) {
+        const sec = Math.max(2, Math.round(at.thinking.length / 125));
+        steps.push({
+          type: 'thought',
+          duration: `${sec}s`,
+          thinking: at.thinking
+        });
+      }
+
+      if (Array.isArray(at.toolCalls) && at.toolCalls.length > 0) {
+        for (const tc of at.toolCalls) {
+          steps.push(formatToolStep(tc));
+        }
+      }
+
+      if (at.content && at.content.trim().length > 0) {
+        if (i === assistantTurns.length - 1) {
+          finalContent = at.content;
+        } else {
+          interimNotes.push(at.content);
+        }
+      }
+    }
+
+    let durationSec = 0;
+    if (startTime && endTime) {
+      durationSec = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
+    }
+    if (durationSec <= 0) {
+      const toolCount = steps.filter(s => s.type !== 'thought').length;
+      durationSec = Math.max(6, toolCount * 7);
+    }
+    const durationFormatted = formatDuration(durationSec);
+
+    const hasCompletedAnswer = !!finalContent;
+    const isWorking = !hasCompletedAnswer && isLastPartition;
+
+    const assistantResult = {
+      role: 'assistant',
+      index: assistantTurns[0] ? assistantTurns[0].index : 0,
+      isWorking,
+      items: []
+    };
+
+    if (isWorking) {
+      // STATE B: Active / In progress (동작 중 - Image 1)
+      for (const step of steps) {
+        assistantResult.items.push(step);
+      }
+      assistantResult.items.push({ type: 'working_indicator' });
+    } else {
+      // STATE A: Completed / Answered (답변 완료 시 - Image 3)
+      if (steps.length > 0) {
+        const hasTools = steps.some(s => s.type !== 'thought');
+        if (hasTools) {
+          assistantResult.items.push({
+            type: 'worked_group',
+            duration: durationFormatted,
+            steps: steps
+          });
+        } else {
+          assistantResult.items.push({
+            type: 'thought_group',
+            duration: durationFormatted,
+            thinking: steps.map(s => s.thinking).filter(Boolean).join('\n\n')
+          });
+        }
+      }
+
+      for (const note of interimNotes) {
+        assistantResult.items.push({
+          type: 'interim',
+          content: note
+        });
+      }
+
+      if (finalContent) {
+        assistantResult.items.push({
+          type: 'content',
+          content: finalContent
+        });
+      }
+    }
+
+    result.push(assistantResult);
+  }
+
+  return result;
 }
 
 function renderTurn(turn) {
@@ -401,7 +495,7 @@ function renderTurn(turn) {
   let inner = '';
 
   for (const item of normalized.items) {
-    if (item.type === 'worked') {
+    if (item.type === 'worked_group') {
       inner += `
         <details class="step-indicator worked-group">
           <summary class="step-summary">
@@ -409,43 +503,10 @@ function renderTurn(turn) {
             <span class="step-chevron">›</span>
           </summary>
           <div class="step-body worked-steps-list">
-            ${item.initialThought ? `
-              <details class="sub-step-indicator thinking">
-                <summary class="sub-step-summary">
-                  <span class="sub-step-label">Thought process</span>
-                  <span class="step-chevron">›</span>
-                </summary>
-                <div class="sub-step-body thinking-body">${escapeHtml(item.initialThought).replace(/\n/g, '<br/>')}</div>
-              </details>` : ''}
-            ${item.actions.map(act => {
-              const isFailed = act.status === 'ERROR' || act.status === 'FAILED';
-              const argsDisplay = typeof act.args === 'object' ? JSON.stringify(act.args, null, 2) : String(act.args || '');
-              return `
-                <details class="sub-step-indicator ${isFailed ? 'failed' : ''}">
-                  <summary class="sub-step-summary">
-                    <span class="sub-step-label">${escapeHtml(act.label || act.name)}</span>
-                    ${isFailed ? '<span class="step-status-failed">실패</span>' : ''}
-                    <span class="step-chevron">›</span>
-                  </summary>
-                  <div class="sub-step-body"><pre><code>${escapeHtml(argsDisplay)}</code></pre></div>
-                </details>`;
-            }).join('')}
+            ${item.steps.map(renderSubStepHtml).join('')}
           </div>
         </details>`;
-    } else if (item.type === 'single_tool') {
-      const tc = item.tool;
-      const isFailed = tc.status === 'ERROR' || tc.status === 'FAILED';
-      const argsDisplay = typeof tc.args === 'object' ? JSON.stringify(tc.args, null, 2) : String(tc.args || '');
-      inner += `
-        <details class="step-indicator ${isFailed ? 'failed' : ''}">
-          <summary class="step-summary">
-            <span class="step-label">${escapeHtml(tc.label || tc.name)} finished</span>
-            ${isFailed ? '<span class="step-status-failed">실패</span>' : ''}
-            <span class="step-chevron">›</span>
-          </summary>
-          <div class="step-body"><pre><code>${escapeHtml(argsDisplay)}</code></pre></div>
-        </details>`;
-    } else if (item.type === 'thought') {
+    } else if (item.type === 'thought_group') {
       inner += `
         <details class="step-indicator thinking">
           <summary class="step-summary">
@@ -454,10 +515,18 @@ function renderTurn(turn) {
           </summary>
           <div class="step-body thinking-body">${escapeHtml(item.thinking).replace(/\n/g, '<br/>')}</div>
         </details>`;
+    } else if (item.type === 'working_indicator') {
+      inner += `
+        <div class="working-indicator">
+          <span class="working-spinner"></span>
+          <span>Working</span>
+        </div>`;
     } else if (item.type === 'interim') {
       inner += `<div class="assistant-interim-text">${escapeHtml(item.content)}</div>`;
     } else if (item.type === 'content') {
       inner += `<div class="markdown-body">${renderMarkdown(item.content)}</div>`;
+    } else {
+      inner += renderSubStepHtml(item);
     }
   }
 
@@ -485,14 +554,13 @@ function doSend() {
     scrollToBottom();
   }
 
-  // Visual pending indicator
   const existingPending = document.getElementById('turn-pending-indicator');
   if (existingPending) existingPending.remove();
 
   const pendingDiv = document.createElement('div');
   pendingDiv.id = 'turn-pending-indicator';
   pendingDiv.className = 'turn-item assistant';
-  pendingDiv.innerHTML = '<div class="markdown-body" style="color:var(--text-muted);font-size:12.5px;padding:4px 0;"><span style="color:#10b981;">●</span> AI 응답을 생성하고 있습니다...</div>';
+  pendingDiv.innerHTML = '<div class="working-indicator"><span class="working-spinner"></span> <span>Working</span></div>';
   messagesContainer.appendChild(pendingDiv);
   scrollToBottom();
 
@@ -571,76 +639,117 @@ if (btnCopy) {
 // Global click delegation for links and copy buttons
 if (isBrowser) {
   document.addEventListener('click', (e) => {
-  // 1. Link click
-  const link = e.target.closest('.chat-link');
-  if (link) {
-    e.preventDefault();
-    const url = link.getAttribute('data-url') || link.getAttribute('href');
-    if (url && window.vscode) {
-      window.vscode.postMessage({ command: 'openLink', url });
+    const link = e.target.closest('.chat-link');
+    if (link) {
+      e.preventDefault();
+      const url = link.getAttribute('data-url') || link.getAttribute('href');
+      if (url && window.vscode) {
+        window.vscode.postMessage({ command: 'openLink', url });
+      }
+      return;
     }
-    return;
-  }
 
-  // 2. Copy code button
-  const copyBtn = e.target.closest('.copy-code-btn');
-  if (copyBtn) {
-    const wrap = copyBtn.closest('.code-block-wrap');
-    if (wrap) {
-      const codeEl = wrap.querySelector('code');
-      if (codeEl) {
-        navigator.clipboard.writeText(codeEl.innerText);
-        const original = copyBtn.textContent;
-        copyBtn.textContent = '✓ 복사됨';
-        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+    const copyBtn = e.target.closest('.copy-code-btn');
+    if (copyBtn) {
+      const wrap = copyBtn.closest('.code-block-wrap');
+      if (wrap) {
+        const codeEl = wrap.querySelector('code');
+        if (codeEl) {
+          navigator.clipboard.writeText(codeEl.innerText);
+          const original = copyBtn.textContent;
+          copyBtn.textContent = '✓ 복사됨';
+          setTimeout(() => { copyBtn.textContent = original; }, 1500);
+        }
       }
     }
-  }
-});
+  });
 
-function applyTurns(msg, isInitial) {
-  currentSession = msg.session;
-  const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
+  // Seamless Reverse Infinite Scroll (스크롤 업 시 자동 추가 로딩, 화면 리프레시 없음)
+  let hasEarlierTurns = false;
+  let isLoadingEarlier = false;
 
-  messagesContainer.innerHTML = '';
-
-  if (!msg.turns || msg.turns.length === 0) {
-    messagesContainer.innerHTML = '<div class="empty-state">대화 기록이 없습니다. 첫 메시지를 전송해 보세요!</div>';
-    return;
-  }
-
-  if (msg.hasEarlier) {
-    const wrap = document.createElement('div');
-    wrap.className = 'load-earlier-wrap';
-    const btnEarlier = document.createElement('button');
-    btnEarlier.className = 'btn-load-earlier';
-    btnEarlier.textContent = `⬆ 이전 대화 더 불러오기 (총 ${msg.totalCount}개 중 최근 ${msg.turns.length}개 표시)`;
-    btnEarlier.onclick = () => {
+  messagesContainer.addEventListener('scroll', () => {
+    if (messagesContainer.scrollTop < 120 && hasEarlierTurns && !isLoadingEarlier) {
+      isLoadingEarlier = true;
+      const loader = document.getElementById('loading-earlier-indicator');
+      if (loader) loader.style.display = 'flex';
       vscode.postMessage({ command: 'loadMoreTurns' });
-    };
-    wrap.appendChild(btnEarlier);
-    messagesContainer.appendChild(wrap);
+    }
+  });
+
+  function applyTurns(msg, isInitial) {
+    currentSession = msg.session;
+    hasEarlierTurns = !!msg.hasEarlier;
+    isLoadingEarlier = false;
+
+    const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
+    messagesContainer.innerHTML = '';
+
+    if (!msg.turns || msg.turns.length === 0) {
+      messagesContainer.innerHTML = '<div class="empty-state">대화 기록이 없습니다. 첫 메시지를 전송해 보세요!</div>';
+      return;
+    }
+
+    if (hasEarlierTurns) {
+      const topBar = document.createElement('div');
+      topBar.id = 'loading-earlier-indicator';
+      topBar.className = 'loading-earlier-bar';
+      topBar.innerHTML = '<span class="working-spinner"></span> 과거 대화 불러오는 중...';
+      messagesContainer.appendChild(topBar);
+    }
+
+    const groupedTurns = groupConsecutiveTurns(msg.turns);
+    for (const t of groupedTurns) {
+      const el = renderTurn(t);
+      if (el) messagesContainer.appendChild(el);
+    }
+
+    if (isInitial || isNearBottom) {
+      scrollToBottom();
+    }
   }
 
-  const groupedTurns = groupConsecutiveTurns(msg.turns);
-  for (const t of groupedTurns) {
-    const el = renderTurn(t);
-    if (el) messagesContainer.appendChild(el);
+  function applyMoreTurns(msg) {
+    hasEarlierTurns = !!msg.hasEarlier;
+    isLoadingEarlier = false;
+
+    const loader = document.getElementById('loading-earlier-indicator');
+    if (loader) loader.style.display = 'none';
+
+    const prevScrollHeight = messagesContainer.scrollHeight;
+    const prevScrollTop = messagesContainer.scrollTop;
+
+    messagesContainer.innerHTML = '';
+
+    if (hasEarlierTurns) {
+      const topBar = document.createElement('div');
+      topBar.id = 'loading-earlier-indicator';
+      topBar.className = 'loading-earlier-bar';
+      topBar.innerHTML = '<span class="working-spinner"></span> 과거 대화 불러오는 중...';
+      messagesContainer.appendChild(topBar);
+    }
+
+    const groupedTurns = groupConsecutiveTurns(msg.turns);
+    for (const t of groupedTurns) {
+      const el = renderTurn(t);
+      if (el) messagesContainer.appendChild(el);
+    }
+
+    // Anchor-preserved seamless scroll: keep viewport completely stationary!
+    const heightDiff = messagesContainer.scrollHeight - prevScrollHeight;
+    messagesContainer.scrollTop = prevScrollTop + heightDiff;
   }
 
-  if (isInitial || isNearBottom) {
-    scrollToBottom();
-  }
-}
-
-window.addEventListener('message', (event) => {
-  const msg = event.data;
-  if (msg.type === 'initTurns') {
-    applyTurns(msg, true);
-  } else if (msg.type === 'updateTurns') {
-    applyTurns(msg, false);
-  }
-});
+  window.addEventListener('message', (event) => {
+    const msg = event.data;
+    if (msg.type === 'initTurns') {
+      applyTurns(msg, true);
+    } else if (msg.type === 'updateTurns') {
+      applyTurns(msg, false);
+    } else if (msg.type === 'moreTurnsLoaded') {
+      applyMoreTurns(msg);
+    }
+  });
 
   vscode.postMessage({ command: 'ready' });
   vscode.postMessage({ command: 'syncTurns' });
@@ -654,6 +763,8 @@ if (typeof module !== 'undefined') {
     renderMarkdown,
     renderTurn,
     formatDuration,
+    formatToolStep,
+    renderSubStepHtml,
     groupConsecutiveTurns
   };
 }
