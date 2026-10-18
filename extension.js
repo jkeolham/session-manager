@@ -14,7 +14,9 @@ class CategoryItem extends vscode.TreeItem {
     this.description = `(${count})`;
     this.contextValue = 'categoryItem';
     
-    if (key === 'agy') {
+    if (key === 'remoteControl') {
+      this.iconPath = new vscode.ThemeIcon('cloud');
+    } else if (key === 'agy') {
       this.iconPath = new vscode.ThemeIcon('sparkle');
     } else if (key === 'claude') {
       this.iconPath = new vscode.ThemeIcon('hubot');
@@ -23,6 +25,32 @@ class CategoryItem extends vscode.TreeItem {
     } else {
       this.iconPath = new vscode.ThemeIcon('terminal');
     }
+  }
+}
+
+class RemoteControlItem extends vscode.TreeItem {
+  constructor(session) {
+    super(session.title || 'Unnamed Session', vscode.TreeItemCollapsibleState.None);
+    this.session = session;
+    this.description = `${session.time_str} • ${session.steps} steps`;
+
+    const lines = [
+      `Title: ${session.title}`,
+      `Conversation ID: ${session.cid}`,
+      `Last Modified: ${session.time_str}`,
+      `Database Size: ${session.size_kb} KB`,
+      '',
+      '👉 Click to attach terminal (agy --conversation)'
+    ];
+    this.tooltip = lines.join('\n');
+    this.contextValue = 'remoteControlItem';
+    this.iconPath = new vscode.ThemeIcon('radio-tower');
+
+    this.command = {
+      command: 'sessionManager.attachRemoteControl',
+      title: 'Attach to Remote Control Session',
+      arguments: [session.cid, session.title]
+    };
   }
 }
 
@@ -54,7 +82,7 @@ class SessionItem extends vscode.TreeItem {
     this.contextValue = 'sessionItem';
 
     if (type === 'agy') {
-      this.iconPath = new vscode.ThemeIcon('radio-tower');
+      this.iconPath = new vscode.ThemeIcon('sparkle');
     } else if (type === 'claude') {
       this.iconPath = new vscode.ThemeIcon('terminal-view-icon');
     } else if (type === 'codex') {
@@ -75,7 +103,7 @@ class SessionTreeDataProvider {
   constructor() {
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-    this.cachedData = { agy: [], claude: [], codex: [], other: [] };
+    this.cachedData = { remoteControl: [], agy: [], claude: [], codex: [], other: [] };
   }
 
   refresh() {
@@ -95,21 +123,24 @@ class SessionTreeDataProvider {
       }
 
       const categories = [];
-      if (this.cachedData.agy.length > 0) {
-        categories.push(new CategoryItem('Antigravity CLI (agy)', 'agy', this.cachedData.agy.length, true));
+      if (this.cachedData.remoteControl && this.cachedData.remoteControl.length > 0) {
+        categories.push(new CategoryItem('Remote Control Sessions (Antigravity Hub)', 'remoteControl', this.cachedData.remoteControl.length, true));
       }
-      if (this.cachedData.claude.length > 0) {
-        categories.push(new CategoryItem('Claude Code Sessions', 'claude', this.cachedData.claude.length, false));
+      if (this.cachedData.agy && this.cachedData.agy.length > 0) {
+        categories.push(new CategoryItem('Active tmux Sessions (agy_*)', 'agy', this.cachedData.agy.length, false));
       }
-      if (this.cachedData.codex.length > 0) {
-        categories.push(new CategoryItem('Codex Sessions', 'codex', this.cachedData.codex.length, false));
+      if (this.cachedData.claude && this.cachedData.claude.length > 0) {
+        categories.push(new CategoryItem('Claude Code Sessions (tmux)', 'claude', this.cachedData.claude.length, false));
       }
-      if (this.cachedData.other.length > 0) {
-        categories.push(new CategoryItem('Other Sessions', 'other', this.cachedData.other.length, false));
+      if (this.cachedData.codex && this.cachedData.codex.length > 0) {
+        categories.push(new CategoryItem('Codex Sessions (tmux)', 'codex', this.cachedData.codex.length, false));
+      }
+      if (this.cachedData.other && this.cachedData.other.length > 0) {
+        categories.push(new CategoryItem('Other tmux Sessions', 'other', this.cachedData.other.length, false));
       }
 
       if (categories.length === 0) {
-        const emptyItem = new vscode.TreeItem('No active tmux sessions found');
+        const emptyItem = new vscode.TreeItem('No active sessions found');
         emptyItem.iconPath = new vscode.ThemeIcon('info');
         return [emptyItem];
       }
@@ -117,6 +148,10 @@ class SessionTreeDataProvider {
     }
 
     if (element instanceof CategoryItem) {
+      if (element.key === 'remoteControl') {
+        const list = this.cachedData.remoteControl || [];
+        return list.map(s => new RemoteControlItem(s));
+      }
       const list = this.cachedData[element.key] || [];
       return list.map(s => new SessionItem(s, element.key));
     }
@@ -142,6 +177,26 @@ function attachToSession(sessionName) {
   terminal.show();
 }
 
+function attachRemoteControl(cid, title) {
+  if (!cid) return;
+  const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
+  const existing = vscode.window.terminals.find(t => t.name === terminalName);
+  if (existing) {
+    existing.show();
+    return;
+  }
+
+  const safeSlug = (title || 'conv').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 15);
+  const tmuxSessionName = `rc_${safeSlug}_${cid.slice(0, 4)}`;
+
+  const terminal = vscode.window.createTerminal({
+    name: terminalName,
+    shellPath: 'tmux',
+    shellArgs: ['new-session', '-A', '-s', tmuxSessionName, `agy --conversation=${cid}`]
+  });
+  terminal.show();
+}
+
 function activate(context) {
   console.log('Session Manager extension is now active!');
 
@@ -154,6 +209,10 @@ function activate(context) {
       sessionName = arg.session.name;
     }
     attachToSession(sessionName);
+  });
+
+  const attachRcCmd = vscode.commands.registerCommand('sessionManager.attachRemoteControl', (cid, title) => {
+    attachRemoteControl(cid, title);
   });
 
   const refreshCmd = vscode.commands.registerCommand('sessionManager.refresh', () => {
@@ -210,7 +269,7 @@ function activate(context) {
     treeDataProvider.refresh();
   }, 30000);
 
-  context.subscriptions.push(attachCmd, refreshCmd, newAgyCmd, killCmd, {
+  context.subscriptions.push(attachCmd, attachRcCmd, refreshCmd, newAgyCmd, killCmd, {
     dispose: () => clearInterval(interval)
   });
 }

@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -6,32 +6,30 @@ const CONVERSATION_DB_PATH = path.join(
   process.env.HOME || '/home/ttolmany',
   '.gemini/antigravity-cli/conversation_summaries.db'
 );
+const REMOTE_SESSIONS_PY = path.join(__dirname, 'remote-sessions.py');
 
 let conversationTitleCache = {};
 
-function getConversationTitles() {
-  if (!fs.existsSync(CONVERSATION_DB_PATH)) {
-    return {};
+function getRemoteControlSessions() {
+  if (!fs.existsSync(REMOTE_SESSIONS_PY)) {
+    return [];
   }
   try {
-    const pyScript = `
-import sqlite3, json
-try:
-    conn = sqlite3.connect("file:${CONVERSATION_DB_PATH}?mode=ro", uri=True)
-    c = conn.cursor()
-    data = {}
-    for cid, title, last_mod in c.execute("SELECT conversation_id, title, last_modified_time FROM conversation_summaries"):
-        data[cid] = {"title": title, "last_mod": last_mod}
-    print(json.dumps(data))
-except Exception as e:
-    print("{}")
-`;
-    const out = execSync(`python3 -c '${pyScript}'`, { encoding: 'utf-8', timeout: 5000 });
-    conversationTitleCache = JSON.parse(out.trim() || '{}');
-    return conversationTitleCache;
+    const out = execFileSync('python3', [REMOTE_SESSIONS_PY], { encoding: 'utf-8', timeout: 5000 });
+    return JSON.parse(out.trim() || '[]');
   } catch (err) {
-    return conversationTitleCache;
+    console.error('Error in getRemoteControlSessions:', err);
+    return [];
   }
+}
+
+function getConversationTitles() {
+  const sessions = getRemoteControlSessions();
+  const map = {};
+  for (const s of sessions) {
+    map[s.cid] = { title: s.title };
+  }
+  return map;
 }
 
 function getConversationIdFromPane(sessionName) {
@@ -52,6 +50,7 @@ function getConversationIdFromPane(sessionName) {
 
 async function getCategorizedSessions() {
   const result = {
+    remoteControl: getRemoteControlSessions(),
     agy: [],
     claude: [],
     codex: [],
@@ -128,5 +127,6 @@ async function getCategorizedSessions() {
 
 module.exports = {
   getCategorizedSessions,
+  getRemoteControlSessions,
   getConversationTitles
 };

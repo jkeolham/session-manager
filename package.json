@@ -41,6 +41,11 @@
         "icon": "$(terminal)"
       },
       {
+        "command": "sessionManager.attachRemoteControl",
+        "title": "Attach Remote Control Session",
+        "icon": "$(radio-tower)"
+      },
+      {
         "command": "sessionManager.refresh",
         "title": "Refresh Sessions",
         "icon": "$(refresh)"
