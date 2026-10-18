@@ -818,3 +818,51 @@ body.is-sidebar #composer-input {
   font-size: 12.5px;
   padding: 8px 10px;
 }
+
+/* Terminal Command Input Bar (Instant Zero Latency) */
+.terminal-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: 14px;
+  max-width: 880px;
+  width: calc(100% - 40px);
+  margin: 0 auto 16px auto;
+  flex-shrink: 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.term-prompt-icon {
+  font-family: var(--vscode-editor-font-family, "Fira Code", monospace);
+  color: #10b981;
+  font-weight: 700;
+  font-size: 15px;
+  user-select: none;
+}
+
+#term-cmd-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--vscode-editor-font-family, "Fira Code", monospace);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+#term-cmd-input::placeholder {
+  color: var(--text-muted);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+}
+
+#btn-term-send {
+  padding: 6px 14px;
+  font-size: 12.5px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}

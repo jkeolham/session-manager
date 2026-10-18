@@ -162,21 +162,32 @@ class SessionChatPanelManager {
       } catch (err) {}
     };
 
-    // Live background polling (1.2s interval)
+    // Fast polling for interactive terminal (100ms)
+    let termFastTimer = null;
+    const startTermFastPolling = () => {
+      if (termFastTimer) clearInterval(termFastTimer);
+      termFastTimer = setInterval(() => {
+        if (!record.panel.visible || !record.isTermActive) return;
+        sendTerminalToWebview(false);
+      }, 100);
+    };
+
+    const stopTermFastPolling = () => {
+      if (termFastTimer) {
+        clearInterval(termFastTimer);
+        termFastTimer = null;
+      }
+    };
+
+    // Live background polling for Chat (1.2s interval)
     record.pollTimer = setInterval(() => {
       if (!record.panel.visible) return;
-
-      // 1. Sync Chat turns if transcript modified
       sendTurnsToWebview(false);
-
-      // 2. Sync Console terminal if active
-      if (record.isTermActive) {
-        sendTerminalToWebview(false);
-      }
     }, 1200);
 
     panel.onDidDispose(() => {
       if (record.pollTimer) clearInterval(record.pollTimer);
+      stopTermFastPolling();
       this.panels.delete(key);
     }, null, this.subscriptions);
 
@@ -197,6 +208,7 @@ class SessionChatPanelManager {
         setTimeout(() => sendTurnsToWebview(false), 1600);
       } else if (data.command === 'termActivate') {
         record.isTermActive = true;
+        startTermFastPolling();
         try {
           execSync(`tmux resize-window -t "${record.sessionName}" -x 120 -y 40 2>/dev/null`);
         } catch (e) {}
@@ -210,10 +222,51 @@ class SessionChatPanelManager {
         }
       } else if (data.command === 'termDeactivate') {
         record.isTermActive = false;
+        stopTermFastPolling();
+      } else if (data.command === 'termCommand') {
+        const cmd = data.text;
+        if (cmd) {
+          if (this.sendTextToTmux) {
+            this.sendTextToTmux(record.sessionName, cmd);
+          } else {
+            try {
+              execSync(`tmux send-keys -t "${record.sessionName}" -l ${JSON.stringify(cmd)} 2>/dev/null`);
+              execSync(`tmux send-keys -t "${record.sessionName}" Enter 2>/dev/null`);
+            } catch (e) {}
+          }
+          // Instant response: capture immediately at 15ms, 80ms, 250ms
+          setTimeout(() => sendTerminalToWebview(false), 15);
+          setTimeout(() => sendTerminalToWebview(false), 80);
+          setTimeout(() => sendTerminalToWebview(false), 250);
+        }
       } else if (data.command === 'termData') {
         try {
-          execSync(`tmux send-keys -t "${record.sessionName}" -l ${JSON.stringify(data.data)} 2>/dev/null`);
+          const key = data.data;
+          if (key === '\r' || key === '\n') {
+            execSync(`tmux send-keys -t "${record.sessionName}" Enter 2>/dev/null`);
+          } else if (key === '\x7f' || key === '\b') {
+            execSync(`tmux send-keys -t "${record.sessionName}" BSpace 2>/dev/null`);
+          } else if (key === '\t') {
+            execSync(`tmux send-keys -t "${record.sessionName}" Tab 2>/dev/null`);
+          } else if (key === '\x03') {
+            execSync(`tmux send-keys -t "${record.sessionName}" C-c 2>/dev/null`);
+          } else if (key === '\x04') {
+            execSync(`tmux send-keys -t "${record.sessionName}" C-d 2>/dev/null`);
+          } else if (key === '\x1b[A') {
+            execSync(`tmux send-keys -t "${record.sessionName}" Up 2>/dev/null`);
+          } else if (key === '\x1b[B') {
+            execSync(`tmux send-keys -t "${record.sessionName}" Down 2>/dev/null`);
+          } else if (key === '\x1b[C') {
+            execSync(`tmux send-keys -t "${record.sessionName}" Right 2>/dev/null`);
+          } else if (key === '\x1b[D') {
+            execSync(`tmux send-keys -t "${record.sessionName}" Left 2>/dev/null`);
+          } else if (key) {
+            execSync(`tmux send-keys -t "${record.sessionName}" -l ${JSON.stringify(key)} 2>/dev/null`);
+          }
         } catch (e) {}
+        // Instant response: echo keystrokes within 10ms and 50ms
+        setTimeout(() => sendTerminalToWebview(false), 10);
+        setTimeout(() => sendTerminalToWebview(false), 50);
       } else if (data.command === 'openLink') {
         if (data.url && data.url.startsWith('file://')) {
           const filePath = data.url.replace(/^file:\/\//, '');
@@ -280,6 +333,11 @@ class SessionChatPanelManager {
       <div id="terminal-container" class="terminal-container">
         <pre id="terminal-output"></pre>
         <button id="btn-term-scroll-bottom" class="term-scroll-btn" style="display:none;">⬇ 최신 터미널 출력으로 이동</button>
+      </div>
+      <div class="terminal-input-bar">
+        <span class="term-prompt-icon">$</span>
+        <input id="term-cmd-input" type="text" placeholder="명령어를 입력하세요 (예: git status, top, ls, /clear)..." autocomplete="off" />
+        <button id="btn-term-send" class="btn-primary" type="button">실행 ↵</button>
       </div>
     </div>
   </div>

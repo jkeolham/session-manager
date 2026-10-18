@@ -3,10 +3,14 @@
   const terminalContainer = document.getElementById('terminal-container');
   const terminalOutput = document.getElementById('terminal-output');
   const btnScrollBottom = document.getElementById('btn-term-scroll-bottom');
+  const termCmdInput = document.getElementById('term-cmd-input');
+  const btnTermSend = document.getElementById('btn-term-send');
 
   if (!terminalContainer || !terminalOutput) return;
 
   let isAutoScroll = true;
+  let cmdHistory = [];
+  let historyIdx = -1;
 
   // Track scrolling inside terminal-output pre element
   terminalOutput.addEventListener('scroll', () => {
@@ -22,10 +26,10 @@
       terminalOutput.scrollTop = terminalOutput.scrollHeight;
       isAutoScroll = true;
       btnScrollBottom.style.display = 'none';
+      if (termCmdInput) termCmdInput.focus();
     });
   }
 
-  
   // Sync tmux terminal width on resize or activation
   function syncCols() {
     const viewTerm = document.getElementById('view-term');
@@ -69,23 +73,97 @@
     } catch (err) {}
   });
 
-  // Key capture when terminal view is focused
+  // Send command from dedicated input bar
+  function sendTermCmd() {
+    if (!termCmdInput) return;
+    const cmd = termCmdInput.value;
+    if (cmd.trim() === '') return;
+
+    if (window.vscode) {
+      window.vscode.postMessage({ command: 'termCommand', text: cmd });
+    }
+
+    cmdHistory.unshift(cmd);
+    if (cmdHistory.length > 50) cmdHistory.pop();
+    historyIdx = -1;
+
+    termCmdInput.value = '';
+    isAutoScroll = true;
+  }
+
+  if (btnTermSend) {
+    btnTermSend.addEventListener('click', sendTermCmd);
+  }
+
+  if (termCmdInput) {
+    termCmdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendTermCmd();
+      } else if (e.key === 'ArrowUp') {
+        if (historyIdx < cmdHistory.length - 1) {
+          e.preventDefault();
+          historyIdx++;
+          termCmdInput.value = cmdHistory[historyIdx] || '';
+        }
+      } else if (e.key === 'ArrowDown') {
+        if (historyIdx > 0) {
+          e.preventDefault();
+          historyIdx--;
+          termCmdInput.value = cmdHistory[historyIdx] || '';
+        } else if (historyIdx === 0) {
+          e.preventDefault();
+          historyIdx = -1;
+          termCmdInput.value = '';
+        }
+      }
+    });
+  }
+
+  // Direct keystroke capture when terminal view is active (when input bar is not focused)
   window.addEventListener('keydown', (e) => {
     const viewTerm = document.getElementById('view-term');
     if (!viewTerm || !viewTerm.classList.contains('active')) return;
-    if (e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (e.ctrlKey) {
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x03' });
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x04' });
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x0c' });
+      }
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\t' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\r' });
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x7f' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x1b[A' });
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x1b[B' });
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x1b[C' });
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (window.vscode) window.vscode.postMessage({ command: 'termData', data: '\x1b[D' });
+    } else if (e.key.length === 1 && !e.metaKey && !e.altKey) {
       if (window.vscode) {
         window.vscode.postMessage({ command: 'termData', data: e.key });
-      }
-    } else if (e.key === 'Enter') {
-      if (window.vscode) {
-        window.vscode.postMessage({ command: 'termData', data: '\r' });
-      }
-    } else if (e.key === 'Backspace') {
-      if (window.vscode) {
-        window.vscode.postMessage({ command: 'termData', data: '\x7f' });
       }
     }
   });
