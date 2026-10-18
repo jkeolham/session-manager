@@ -66,6 +66,11 @@
         "command": "sessionManager.reloadRemoteControl",
         "title": "Reload Session (Sync Latest Turns)",
         "icon": "$(sync)"
+      },
+      {
+        "command": "sessionManager.deleteRemoteControl",
+        "title": "Delete Session",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -83,6 +88,16 @@
       ],
       "view/item/context": [
         {
+          "command": "sessionManager.reloadRemoteControl",
+          "when": "viewItem == remoteControlItem",
+          "group": "inline@1"
+        },
+        {
+          "command": "sessionManager.deleteRemoteControl",
+          "when": "viewItem == remoteControlItem",
+          "group": "inline@2"
+        },
+        {
           "command": "sessionManager.attach",
           "when": "viewItem == sessionItem",
           "group": "inline@1"
@@ -91,11 +106,6 @@
           "command": "sessionManager.kill",
           "when": "viewItem == sessionItem",
           "group": "inline@2"
-        },
-        {
-          "command": "sessionManager.reloadRemoteControl",
-          "when": "viewItem == remoteControlItem",
-          "group": "inline@1"
         }
       ]
     }

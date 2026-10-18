@@ -1,6 +1,10 @@
 const vscode = require('vscode');
 const { getCategorizedSessions } = require('./session-discovery');
-const { exec, execSync } = require('child_process');
+const { exec, execSync, execFileSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+const DELETE_SESSION_PY = path.join(__dirname, 'delete-session.py');
 
 class CategoryItem extends vscode.TreeItem {
   constructor(label, key, count, expanded = false) {
@@ -42,7 +46,8 @@ class RemoteControlItem extends vscode.TreeItem {
       `Database Size: ${session.size_kb} KB`,
       '',
       '👉 Click to attach terminal (agy --conversation)',
-      '🔄 Click sync icon to reload latest turns from phone/hub'
+      '🔄 Click reload icon to sync latest turns from phone/hub',
+      '🗑️ Click trash icon to delete session'
     ];
     this.tooltip = lines.join('\n');
     this.contextValue = 'remoteControlItem';
@@ -112,10 +117,33 @@ class SessionTreeDataProvider {
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this.cachedData = { remoteControl: [], agy: [], claude: [], codex: [], other: [] };
+    this.lastDataHash = '';
+  }
+
+  // Smart refresh: only fire UI update when data actually changed
+  async smartRefresh(force = false) {
+    try {
+      const freshData = await getCategorizedSessions();
+      const newHash = JSON.stringify({
+        rc: (freshData.remoteControl || []).map(s => `${s.cid}:${s.steps}:${s.mtime}`),
+        agy: (freshData.agy || []).map(s => `${s.name}:${s.cmd}:${s.pid}`),
+        claude: (freshData.claude || []).map(s => s.name),
+        codex: (freshData.codex || []).map(s => s.name),
+        other: (freshData.other || []).map(s => s.name)
+      });
+
+      if (force || newHash !== this.lastDataHash) {
+        this.cachedData = freshData;
+        this.lastDataHash = newHash;
+        this._onDidChangeTreeData.fire();
+      }
+    } catch (e) {
+      console.error('Error in smartRefresh:', e);
+    }
   }
 
   refresh() {
-    this._onDidChangeTreeData.fire();
+    this.smartRefresh(true);
   }
 
   getTreeItem(element) {
@@ -124,10 +152,12 @@ class SessionTreeDataProvider {
 
   async getChildren(element) {
     if (!element) {
-      try {
-        this.cachedData = await getCategorizedSessions();
-      } catch (e) {
-        console.error('Error fetching sessions:', e);
+      if (!this.lastDataHash) {
+        try {
+          this.cachedData = await getCategorizedSessions();
+        } catch (e) {
+          console.error('Error fetching sessions:', e);
+        }
       }
 
       const categories = [];
@@ -189,7 +219,7 @@ function getTmuxSessionName(cid) {
   return `rc_${(cid || '').slice(0, 8)}`;
 }
 
-function attachRemoteControl(cid, title) {
+function attachRemoteControl(cid, title, treeDataProvider) {
   if (!cid) return;
   const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
   const existing = vscode.window.terminals.find(t => t.name === terminalName);
@@ -239,11 +269,58 @@ function reloadRemoteControl(cid, title) {
   vscode.window.showInformationMessage(`Reloaded session "${title || cid.slice(0, 8)}" with latest turns.`);
 }
 
+async function deleteRemoteControl(cid, title, treeDataProvider) {
+  if (!cid) return;
+  const shortCid = cid.slice(0, 4);
+  const displayTitle = title || cid.slice(0, 8);
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Are you sure you want to delete session "${displayTitle}" [${shortCid}]?\n\nImpact & Blast Radius:\n• Conversation history and DB records will be permanently removed from Antigravity Hub and server.\n• Workspace source files and git commits will NOT be affected.`,
+    { modal: true },
+    'Delete Session'
+  );
+
+  if (confirm !== 'Delete Session') {
+    return;
+  }
+
+  // 1. Close open VS Code terminal
+  const terminalName = `AGY: ${displayTitle}`;
+  const existing = vscode.window.terminals.find(t => t.name === terminalName);
+  if (existing) {
+    existing.dispose();
+  }
+
+  // 2. Kill tmux session if running
+  const tmuxSessionName = getTmuxSessionName(cid);
+  try {
+    execSync(`tmux kill-session -t "${tmuxSessionName}" 2>/dev/null || true`);
+  } catch (e) {}
+
+  // 3. Delete files & DB record via delete-session.py
+  try {
+    if (fs.existsSync(DELETE_SESSION_PY)) {
+      execFileSync('python3', [DELETE_SESSION_PY, cid], { encoding: 'utf-8', timeout: 5000 });
+    }
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to delete session files: ${err.message}`);
+    return;
+  }
+
+  vscode.window.showInformationMessage(`Session "${displayTitle}" [${shortCid}] deleted successfully.`);
+  if (treeDataProvider) {
+    treeDataProvider.refresh();
+  }
+}
+
 function activate(context) {
   console.log('Session Manager extension is now active!');
 
   const treeDataProvider = new SessionTreeDataProvider();
   vscode.window.registerTreeDataProvider('sessionManagerView', treeDataProvider);
+
+  // Initial load
+  treeDataProvider.smartRefresh(true);
 
   const attachCmd = vscode.commands.registerCommand('sessionManager.attach', (arg) => {
     let sessionName = arg;
@@ -254,7 +331,7 @@ function activate(context) {
   });
 
   const attachRcCmd = vscode.commands.registerCommand('sessionManager.attachRemoteControl', (cid, title) => {
-    attachRemoteControl(cid, title);
+    attachRemoteControl(cid, title, treeDataProvider);
   });
 
   const reloadRcCmd = vscode.commands.registerCommand('sessionManager.reloadRemoteControl', (arg) => {
@@ -267,6 +344,19 @@ function activate(context) {
     }
     if (cid) {
       reloadRemoteControl(cid, title);
+    }
+  });
+
+  const deleteRcCmd = vscode.commands.registerCommand('sessionManager.deleteRemoteControl', async (arg) => {
+    let cid, title;
+    if (arg && arg.session) {
+      cid = arg.session.cid;
+      title = arg.session.title;
+    } else if (typeof arg === 'string') {
+      cid = arg;
+    }
+    if (cid) {
+      await deleteRemoteControl(cid, title, treeDataProvider);
     }
   });
 
@@ -320,13 +410,24 @@ function activate(context) {
     }
   });
 
+  // Smart auto-refresh every 4 seconds (zero flicker if no data changes)
   const interval = setInterval(() => {
-    treeDataProvider.refresh();
-  }, 30000);
+    treeDataProvider.smartRefresh(false);
+  }, 4000);
 
-  context.subscriptions.push(attachCmd, attachRcCmd, reloadRcCmd, refreshCmd, newAgyCmd, killCmd, {
-    dispose: () => clearInterval(interval)
-  });
+  // File system watcher for instant refresh when phone writes to conversation_summaries.db
+  const homeDir = process.env.HOME || '/home/ttolmany';
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-cli'), 'conversation_summaries.db*')
+  );
+  watcher.onDidChange(() => treeDataProvider.smartRefresh(false));
+  watcher.onDidCreate(() => treeDataProvider.smartRefresh(false));
+
+  context.subscriptions.push(
+    attachCmd, attachRcCmd, reloadRcCmd, deleteRcCmd, refreshCmd, newAgyCmd, killCmd,
+    watcher,
+    { dispose: () => clearInterval(interval) }
+  );
 }
 
 function deactivate() {}
