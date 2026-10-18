@@ -15,7 +15,10 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:sessionManagerView"
+    "onView:sessionManagerView",
+    "onView:sessionPromptComposerView",
+    "onCommand:sessionManager.sendPrompt",
+    "onCommand:sessionManager.focusComposer"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -33,6 +36,11 @@
         {
           "id": "sessionManagerView",
           "name": "N100 Sessions"
+        },
+        {
+          "type": "webview",
+          "id": "sessionPromptComposerView",
+          "name": "Prompt Composer (채팅창 입력기)"
         }
       ]
     },
@@ -71,6 +79,16 @@
         "command": "sessionManager.deleteRemoteControl",
         "title": "Delete Session",
         "icon": "$(trash)"
+      },
+      {
+        "command": "sessionManager.sendPrompt",
+        "title": "Send Prompt (GUI Input)",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "sessionManager.focusComposer",
+        "title": "Focus Prompt Composer",
+        "icon": "$(edit)"
       }
     ],
     "menus": {
@@ -81,12 +99,22 @@
           "group": "navigation@1"
         },
         {
-          "command": "sessionManager.newAgy",
+          "command": "sessionManager.sendPrompt",
           "when": "view == sessionManagerView",
           "group": "navigation@2"
+        },
+        {
+          "command": "sessionManager.newAgy",
+          "when": "view == sessionManagerView",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
+        {
+          "command": "sessionManager.sendPrompt",
+          "when": "viewItem == remoteControlItem || viewItem == sessionItem",
+          "group": "inline@0"
+        },
         {
           "command": "sessionManager.reloadRemoteControl",
           "when": "viewItem == remoteControlItem",
@@ -107,8 +135,21 @@
           "when": "viewItem == sessionItem",
           "group": "inline@2"
         }
+      ],
+      "terminal/context": [
+        {
+          "command": "sessionManager.sendPrompt",
+          "group": "0_navigation@1"
+        }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "sessionManager.sendPrompt",
+        "key": "alt+i",
+        "mac": "cmd+alt+i"
+      }
+    ]
   },
   "icon": "media/icon.png",
   "keywords": [
