@@ -1,0 +1,6 @@
+.vscode/**
+.vscode-test/**
+test/**
+**/*.map
+.gitignore
+session-manager-*.vsix

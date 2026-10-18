@@ -89,5 +89,14 @@
         }
       ]
     }
-  }
+  },
+  "icon": "media/icon.png",
+  "keywords": [
+    "antigravity",
+    "tmux",
+    "session-manager",
+    "claude",
+    "terminal",
+    "sessions"
+  ]
 }
