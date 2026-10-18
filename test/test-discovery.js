@@ -27,6 +27,12 @@ async function runTests() {
   assert(musicSession, 'JKNAS 뮤직라이브러리 should be in remote control sessions');
   console.log(`Verified remote control session: "${musicSession.title}" (${musicSession.cid})`);
 
+  const rcSessionsInAgy = categories.agy.filter(s => s.name.startsWith('rc_'));
+  assert(rcSessionsInAgy.length > 0, 'Expected rc_* sessions to be categorized into agy');
+  const matchedRc = rcSessionsInAgy.find(s => s.cid && s.title);
+  assert(matchedRc, 'Expected at least one rc_* session to have matched cid and title');
+  console.log(`Verified rc_* session in agy: "${matchedRc.name}" -> "${matchedRc.title}" (${matchedRc.cid})`);
+
   console.log('✅ All session discovery tests passed!');
 }
 

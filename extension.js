@@ -254,7 +254,7 @@ class SessionTreeDataProvider {
         categories.push(new CategoryItem('Remote Control Sessions (Antigravity Hub)', 'remoteControl', this.cachedData.remoteControl.length, true));
       }
       if (this.cachedData.agy && this.cachedData.agy.length > 0) {
-        categories.push(new CategoryItem('Active tmux Sessions (agy_*)', 'agy', this.cachedData.agy.length, false));
+        categories.push(new CategoryItem('Active Antigravity Sessions (agy_*, rc_*)', 'agy', this.cachedData.agy.length, false));
       }
       if (this.cachedData.claude && this.cachedData.claude.length > 0) {
         categories.push(new CategoryItem('Claude Code Sessions (tmux)', 'claude', this.cachedData.claude.length, false));
@@ -979,16 +979,27 @@ function activate(context) {
   }, 4000);
 
   const homeDir = process.env.HOME || '/home/ttolmany';
-  const transcriptWatcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-ide/brain'), '*/.system_generated/logs/transcript.jsonl')
-  );
-  transcriptWatcher.onDidChange((uri) => {
+
+  const handleTranscriptChange = (uri) => {
     const parts = uri.fsPath.split(path.sep);
     const brainIdx = parts.indexOf('brain');
     if (brainIdx !== -1 && parts[brainIdx + 1]) {
       panelManager.syncTranscript(parts[brainIdx + 1]);
     }
-  });
+  };
+
+  const ideTranscriptWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-ide/brain'), '*/.system_generated/logs/transcript.jsonl')
+  );
+  ideTranscriptWatcher.onDidChange(handleTranscriptChange);
+  ideTranscriptWatcher.onDidCreate(handleTranscriptChange);
+
+  const cliTranscriptWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-cli/brain'), '*/.system_generated/logs/transcript.jsonl')
+  );
+  cliTranscriptWatcher.onDidChange(handleTranscriptChange);
+  cliTranscriptWatcher.onDidCreate(handleTranscriptChange);
+
   const watcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(path.join(homeDir, '.gemini/antigravity-cli'), 'conversation_summaries.db*')
   );
@@ -999,7 +1010,7 @@ function activate(context) {
     openPanelCmd, attachCmd, attachRcCmd, reloadRcCmd, deleteRcCmd, refreshCmd, newAgyCmd, killCmd,
     sendPromptCmd, focusComposerCmd,
     composerViewReg, terminalChangeSub,
-    watcher, transcriptWatcher,
+    watcher, ideTranscriptWatcher, cliTranscriptWatcher,
     { dispose: () => clearInterval(interval) }
   );
 }

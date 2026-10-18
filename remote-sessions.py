@@ -1,7 +1,21 @@
-import os, glob, sqlite3, datetime, json
+import os, glob, sqlite3, datetime, json, sys
 
 CONV_DIR = os.path.expanduser("~/.gemini/antigravity-cli/conversations")
 DB_PATH = os.path.expanduser("~/.gemini/antigravity-cli/conversation_summaries.db")
+
+def get_all_titles():
+    if not os.path.exists(DB_PATH):
+        return {}
+    try:
+        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        c = conn.cursor()
+        titles = {}
+        for cid, title, status, steps in c.execute("SELECT conversation_id, title, status, step_count FROM conversation_summaries"):
+            if title:
+                titles[cid] = {"title": title, "status": status, "steps": steps}
+        return titles
+    except Exception:
+        return {}
 
 def get_sessions():
     if not os.path.exists(DB_PATH) or not os.path.exists(CONV_DIR):
@@ -44,4 +58,7 @@ def get_sessions():
     return sessions[:30]
 
 if __name__ == "__main__":
-    print(json.dumps(get_sessions(), ensure_ascii=False))
+    if len(sys.argv) > 1 and sys.argv[1] == "--titles":
+        print(json.dumps(get_all_titles(), ensure_ascii=False))
+    else:
+        print(json.dumps(get_sessions(), ensure_ascii=False))

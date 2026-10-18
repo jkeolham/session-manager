@@ -24,6 +24,14 @@ function getRemoteControlSessions() {
 }
 
 function getConversationTitles() {
+  if (fs.existsSync(REMOTE_SESSIONS_PY)) {
+    try {
+      const out = execFileSync('python3', [REMOTE_SESSIONS_PY, '--titles'], { encoding: 'utf-8', timeout: 5000 });
+      return JSON.parse(out.trim() || '{}');
+    } catch (err) {
+      console.error('Error in getConversationTitles (--titles):', err);
+    }
+  }
   const sessions = getRemoteControlSessions();
   const map = {};
   for (const s of sessions) {
@@ -97,6 +105,18 @@ async function getCategorizedSessions() {
         if (titles[cid] && titles[cid].title) {
           sessionObj.title = titles[cid].title;
         }
+      }
+      result.agy.push(sessionObj);
+    } else if (sessionName.startsWith('rc_')) {
+      const prefix = sessionName.slice(3);
+      const matchingCid = Object.keys(titles).find(k => k.startsWith(prefix));
+      if (matchingCid) {
+        sessionObj.cid = matchingCid;
+        if (titles[matchingCid] && titles[matchingCid].title) {
+          sessionObj.title = titles[matchingCid].title;
+        }
+      } else {
+        sessionObj.cid = prefix;
       }
       result.agy.push(sessionObj);
     } else if (cmd === 'claude' || sessionName.toLowerCase().includes('claude')) {

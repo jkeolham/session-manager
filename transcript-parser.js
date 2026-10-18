@@ -114,8 +114,41 @@ function parseTranscriptString(rawText, limit = 50) {
   let hasEarlier = false;
 
   if (limit && totalCount > limit) {
-    turns = allTurns.slice(totalCount - limit);
-    hasEarlier = true;
+    const candidateStart = totalCount - limit;
+    const userIndices = [];
+    for (let i = 0; i < allTurns.length; i++) {
+      if (allTurns[i].role === 'user') {
+        userIndices.push(i);
+      }
+    }
+
+    let startIndex = candidateStart;
+    if (userIndices.length > 0) {
+      // Find the user turn at or immediately preceding candidateStart
+      // so turns[0] always begins cleanly with a user conversational prompt
+      let bestUserIdx = -1;
+      for (let i = userIndices.length - 1; i >= 0; i--) {
+        if (userIndices[i] <= candidateStart) {
+          bestUserIdx = userIndices[i];
+          break;
+        }
+      }
+
+      if (bestUserIdx !== -1) {
+        startIndex = bestUserIdx;
+      } else {
+        // All user turns are after candidateStart, start at first user turn
+        startIndex = userIndices[0];
+      }
+    }
+
+    if (startIndex > 0) {
+      turns = allTurns.slice(startIndex);
+      hasEarlier = true;
+    } else {
+      turns = allTurns;
+      hasEarlier = false;
+    }
   }
 
   return {
