@@ -111,10 +111,12 @@ class RemoteControlItem extends vscode.TreeItem {
       `Total Steps: ${session.steps}`,
       `Database Size: ${session.size_kb} KB`,
       '',
-      '👉 Click to attach terminal (agy --conversation)',
-      '💬 Click comment icon to send GUI prompt',
-      '🔄 Click reload icon to sync latest turns from phone/hub',
-      '🗑️ Click trash icon to delete session'
+      '🖱️ 항목 클릭: 통합 AI 대화창 & 콘솔 터미널 열기',
+      '',
+      '【우측 아이콘 액션 버튼】',
+      '💬 프롬프트 전송 (간편 입력)',
+      '🔄 최신 대화 동기화',
+      '🗑️ 세션 삭제'
     ];
     this.tooltip = lines.join('\n');
     this.contextValue = 'remoteControlItem';
@@ -156,8 +158,13 @@ class SessionItem extends vscode.TreeItem {
     if (session.cid) {
       lines.push(`Conversation ID: ${session.cid}`);
     }
-    lines.push('👉 Click to attach terminal');
-    lines.push('💬 Click comment icon to send GUI prompt');
+    lines.push('');
+    lines.push('🖱️ 항목 클릭: 통합 AI 대화창 & 콘솔 터미널 열기');
+    lines.push('');
+    lines.push('【우측 아이콘 액션 버튼】');
+    lines.push('💬 프롬프트 전송');
+    lines.push('>_ 터미널 연결');
+    lines.push('🗑️ 세션 종료');
     this.tooltip = lines.join('\n');
 
     this.contextValue = 'sessionItem';

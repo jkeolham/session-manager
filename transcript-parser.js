@@ -15,10 +15,12 @@ function parseTranscriptString(rawText, limit = 50) {
     try {
       const obj = JSON.parse(line);
       if (obj.type === 'USER_INPUT') {
+        const content = obj.content || '';
+        if (!content.trim()) continue;
         allTurns.push({
           index: obj.step_index || allTurns.length + 1,
           role: 'user',
-          content: obj.content || '',
+          content,
           timestamp: obj.timestamp || null
         });
       } else if (obj.type === 'PLANNER_RESPONSE') {
@@ -32,12 +34,20 @@ function parseTranscriptString(rawText, limit = 50) {
             });
           }
         }
+        const content = obj.content || '';
+        const thinking = obj.thinking || null;
+
+        // Skip completely empty turns with no text, thinking, or tool calls
+        if (!content.trim() && !thinking && toolCalls.length === 0) {
+          continue;
+        }
+
         allTurns.push({
           index: obj.step_index || allTurns.length + 1,
           role: 'assistant',
-          content: obj.content || '',
-          toolCalls: toolCalls,
-          thinking: obj.thinking || null,
+          content,
+          toolCalls,
+          thinking,
           timestamp: obj.timestamp || null
         });
       }

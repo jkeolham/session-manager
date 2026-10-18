@@ -2,21 +2,43 @@
 (function() {
   const terminalContainer = document.getElementById('terminal-container');
   const terminalOutput = document.getElementById('terminal-output');
+  const btnScrollBottom = document.getElementById('btn-term-scroll-bottom');
 
   if (!terminalContainer || !terminalOutput) return;
+
+  let isAutoScroll = true;
+
+  // Track scrolling inside terminal-output pre element
+  terminalOutput.addEventListener('scroll', () => {
+    const distFromBottom = terminalOutput.scrollHeight - terminalOutput.scrollTop - terminalOutput.clientHeight;
+    isAutoScroll = distFromBottom < 40;
+    if (btnScrollBottom) {
+      btnScrollBottom.style.display = isAutoScroll ? 'none' : 'block';
+    }
+  });
+
+  if (btnScrollBottom) {
+    btnScrollBottom.addEventListener('click', () => {
+      terminalOutput.scrollTop = terminalOutput.scrollHeight;
+      isAutoScroll = true;
+      btnScrollBottom.style.display = 'none';
+    });
+  }
 
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'termInit' || msg.type === 'termOutput') {
-      if (msg.data) {
+      if (msg.data !== undefined) {
         terminalOutput.textContent = msg.data;
-        terminalContainer.scrollTop = terminalContainer.scrollHeight;
+        if (isAutoScroll || msg.type === 'termInit') {
+          terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
       }
     }
   });
 
   // Windows drag-to-copy
-  terminalContainer.addEventListener('mouseup', () => {
+  terminalOutput.addEventListener('mouseup', () => {
     const selection = window.getSelection().toString();
     if (selection && selection.length > 0) {
       navigator.clipboard.writeText(selection);
@@ -24,7 +46,7 @@
   });
 
   // Windows right-click paste
-  terminalContainer.addEventListener('contextmenu', async (e) => {
+  terminalOutput.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
     try {
       const clipText = await navigator.clipboard.readText();

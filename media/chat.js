@@ -49,6 +49,10 @@ function renderSimpleMarkdown(rawText) {
 }
 
 function renderTurn(turn) {
+  if (!turn.content && !turn.thinking && (!turn.toolCalls || turn.toolCalls.length === 0)) {
+    return null;
+  }
+
   const div = document.createElement('div');
   div.className = `turn-bubble ${turn.role}`;
 
@@ -64,7 +68,9 @@ function renderTurn(turn) {
         inner += `<details class="tool-call"><summary>🛠️ 도구 실행: <strong>${escapeHtml(tc.name)}</strong></summary><pre><code>${escapeHtml(JSON.stringify(tc.args, null, 2))}</code></pre></details>`;
       }
     }
-    inner += `<div class="markdown-body">${renderSimpleMarkdown(turn.content)}</div>`;
+    if (turn.content) {
+      inner += `<div class="markdown-body">${renderSimpleMarkdown(turn.content)}</div>`;
+    }
   }
 
   div.innerHTML = inner;
@@ -79,10 +85,11 @@ function doSend() {
   const text = composerInput.value.trim();
   if (!text) return;
 
-  if (emptyState) emptyState.style.display = 'none';
   const userDiv = renderTurn({ role: 'user', content: text });
-  messagesContainer.appendChild(userDiv);
-  scrollToBottom();
+  if (userDiv) {
+    messagesContainer.appendChild(userDiv);
+    scrollToBottom();
+  }
 
   vscode.postMessage({
     command: 'sendPrompt',
@@ -119,6 +126,7 @@ if (tabChat && tabTerm) {
     tabTerm.classList.remove('active');
     viewChat.classList.add('active');
     viewTerm.classList.remove('active');
+    vscode.postMessage({ command: 'termDeactivate' });
   };
 
   tabTerm.onclick = () => {
@@ -151,25 +159,53 @@ if (btnCopy) {
   };
 }
 
+function applyTurns(msg, isInitial) {
+  currentSession = msg.session;
+  const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 100;
+
+  messagesContainer.innerHTML = '';
+
+  if (!msg.turns || msg.turns.length === 0) {
+    messagesContainer.innerHTML = '<div class="empty-state">대화 기록이 없습니다. 첫 메시지를 전송해 보세요!</div>';
+    return;
+  }
+
+  if (msg.hasEarlier) {
+    const wrap = document.createElement('div');
+    wrap.className = 'load-earlier-wrap';
+    const btnEarlier = document.createElement('button');
+    btnEarlier.className = 'btn-secondary';
+    btnEarlier.textContent = `⬆ 이전 대화 더 불러오기 (총 ${msg.totalCount}개 중 최근 ${msg.turns.length}개 표시 중)`;
+    btnEarlier.onclick = () => {
+      vscode.postMessage({ command: 'loadMoreTurns' });
+    };
+    wrap.appendChild(btnEarlier);
+    messagesContainer.appendChild(wrap);
+  }
+
+  for (const t of msg.turns) {
+    const el = renderTurn(t);
+    if (el) messagesContainer.appendChild(el);
+  }
+
+  if (isInitial || isNearBottom) {
+    scrollToBottom();
+  }
+}
+
 window.addEventListener('message', (event) => {
   const msg = event.data;
   if (msg.type === 'initTurns') {
-    currentSession = msg.session;
-    messagesContainer.innerHTML = '';
-    if (!msg.turns || msg.turns.length === 0) {
-      messagesContainer.innerHTML = '<div class="empty-state">대화 기록이 없습니다. 첫 메시지를 전송해 보세요!</div>';
-      return;
-    }
-    msg.turns.forEach(t => messagesContainer.appendChild(renderTurn(t)));
-    scrollToBottom();
-  } else if (msg.type === 'appendTurn') {
-    if (emptyState) emptyState.style.display = 'none';
-    messagesContainer.appendChild(renderTurn(msg.turn));
-    scrollToBottom();
+    applyTurns(msg, true);
+  } else if (msg.type === 'updateTurns') {
+    applyTurns(msg, false);
   }
 });
 
-// Export helpers if in node test environment
+// Notify host that webview DOM and listeners are ready
+vscode.postMessage({ command: 'ready' });
+vscode.postMessage({ command: 'syncTurns' });
+
 if (typeof module !== 'undefined') {
   module.exports = {
     escapeHtml,

@@ -1,35 +1,39 @@
 :root {
-  --bg: var(--vscode-editor-background, #18181b);
-  --fg: var(--vscode-editor-foreground, #f4f4f5);
-  --input-bg: var(--vscode-input-background, #27272a);
-  --input-fg: var(--vscode-input-foreground, #f4f4f5);
-  --input-border: var(--vscode-input-border, #3f3f46);
-  --focus-border: var(--vscode-focusBorder, #3b82f6);
-  --btn-bg: var(--vscode-button-background, #2563eb);
+  --bg: var(--vscode-editor-background, #1e1e1e);
+  --fg: var(--vscode-editor-foreground, #d4d4d4);
+  --bubble-user-bg: var(--vscode-button-background, #0e639c);
+  --bubble-user-fg: var(--vscode-button-foreground, #ffffff);
+  --bubble-assistant-bg: var(--vscode-editorWidget-background, #252526);
+  --border-color: var(--vscode-editorWidget-border, #454545);
+  --desc-fg: var(--vscode-descriptionForeground, #858585);
+  --input-bg: var(--vscode-input-background, #3c3c3c);
+  --input-fg: var(--vscode-input-foreground, #cccccc);
+  --input-border: var(--vscode-input-border, #3c3c3c);
+  --btn-bg: var(--vscode-button-background, #0e639c);
   --btn-fg: var(--vscode-button-foreground, #ffffff);
-  --btn-hover: var(--vscode-button-hoverBackground, #1d4ed8);
-  --user-bubble-bg: var(--vscode-badge-background, #3f3f46);
-  --assistant-bubble-bg: rgba(255, 255, 255, 0.03);
-  --code-bg: #1e1e24;
-  --desc-fg: var(--vscode-descriptionForeground, #a1a1aa);
-  --font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
-  --editor-font: var(--vscode-editor-font-family, 'D2Coding', 'Cascadia Mono', Consolas, monospace);
+  --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
+* { box-sizing: border-box; }
+
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-family);
-  font-size: 13px;
-  line-height: 1.5;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
-.panel-container { display: flex; flex-direction: column; height: 100%; }
+.panel-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
 
 .chat-header {
   display: flex;
@@ -38,6 +42,7 @@ body {
   padding: 8px 16px;
   border-bottom: 1px solid var(--input-border);
   background: rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
 }
 
 .header-left { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
@@ -66,11 +71,19 @@ body {
   margin-left: 4px;
 }
 
-.view-content { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.view-content {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+}
 .view-content.active { display: flex; }
 
 .messages-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px 20px;
   display: flex;
@@ -78,48 +91,67 @@ body {
   gap: 16px;
 }
 
-.empty-state { text-align: center; color: var(--desc-fg); margin: auto; padding: 40px; }
+.empty-state {
+  text-align: center;
+  color: var(--desc-fg);
+  margin-top: 40px;
+  font-size: 14px;
+}
+
+.load-earlier-wrap {
+  text-align: center;
+  padding: 8px 0;
+}
 
 .turn-bubble {
-  max-width: 88%;
+  max-width: 90%;
   padding: 12px 16px;
   border-radius: 8px;
+  line-height: 1.5;
   word-break: break-word;
 }
+
 .turn-bubble.user {
   align-self: flex-end;
-  background: var(--user-bubble-bg);
-  color: var(--fg);
+  background: var(--bubble-user-bg);
+  color: var(--bubble-user-fg);
   border-bottom-right-radius: 2px;
 }
+
 .turn-bubble.assistant {
   align-self: flex-start;
-  background: var(--assistant-bubble-bg);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bubble-assistant-bg);
+  border: 1px solid var(--border-color);
   border-bottom-left-radius: 2px;
-  width: 100%;
-  max-width: 95%;
+}
+
+.user-content {
+  white-space: pre-wrap;
 }
 
 .markdown-body pre {
-  background: var(--code-bg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 10px 12px;
   border-radius: 6px;
-  padding: 10px 14px;
   overflow-x: auto;
-  margin: 10px 0;
   position: relative;
-  font-family: var(--editor-font);
+  margin: 8px 0;
 }
+
+.markdown-body code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
 .copy-code-btn {
   position: absolute;
   top: 6px;
   right: 6px;
-  padding: 2px 8px;
-  font-size: 11px;
   background: rgba(255, 255, 255, 0.15);
-  color: #fff;
   border: none;
+  color: var(--fg);
+  font-size: 11px;
+  padding: 2px 6px;
   border-radius: 4px;
   cursor: pointer;
 }
@@ -131,40 +163,111 @@ details.tool-call, details.thinking-block {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
+  font-size: 12px;
 }
-details summary { cursor: pointer; color: var(--desc-fg); font-weight: 500; font-size: 12px; }
+details.tool-call summary, details.thinking-block summary {
+  cursor: pointer;
+  color: var(--desc-fg);
+  user-select: none;
+}
 
 .composer-container {
-  padding: 12px 20px 16px;
+  padding: 12px 20px 16px 20px;
   border-top: 1px solid var(--input-border);
   background: rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
 }
-textarea#composer-input {
+
+#composer-input {
   width: 100%;
-  min-height: 70px;
-  max-height: 220px;
+  height: 80px;
   background: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
   border-radius: 6px;
-  padding: 10px 12px;
-  font-family: var(--editor-font);
+  padding: 8px 12px;
+  font-family: inherit;
   font-size: 13px;
-  outline: none;
   resize: vertical;
+  outline: none;
 }
-textarea#composer-input:focus { border-color: var(--focus-border); }
+#composer-input:focus { border-color: var(--btn-bg); }
 
 .composer-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
 }
+
 .toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--desc-fg); cursor: pointer; }
 .btn-group { display: flex; gap: 8px; }
 .btn-primary { background: var(--btn-bg); color: var(--btn-fg); border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; }
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-secondary { background: rgba(255, 255, 255, 0.1); color: var(--fg); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+.btn-secondary:hover { background: rgba(255, 255, 255, 0.18); }
 
-.terminal-container { flex: 1; height: 100%; padding: 8px; background: #000; }
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+#terminal-output {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  overflow-y: scroll !important;
+  overflow-x: auto;
+  box-sizing: border-box;
+  font-family: var(--vscode-editor-font-family, 'Fira Code', 'Consolas', monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.42;
+  color: #f4f4f5;
+  background: #000;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#terminal-output::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+#terminal-output::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+}
+#terminal-output::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.term-scroll-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 24px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.term-scroll-btn:hover {
+  background: var(--btn-hover);
+  transform: translateY(-2px);
+}

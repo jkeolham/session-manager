@@ -19,9 +19,48 @@ function getPanelKey(session) {
   return session.name || 'unknown_session';
 }
 
-function getTranscriptPath(cid) {
+function resolveTranscriptPath(cid, sessionName) {
   const home = process.env.HOME || '/home/ttolmany';
-  return path.join(home, '.gemini/antigravity-ide/brain', cid, '.system_generated/logs/transcript.jsonl');
+  const brainDirs = [
+    path.join(home, '.gemini/antigravity-cli/brain'),
+    path.join(home, '.gemini/antigravity-ide/brain')
+  ];
+
+  if (cid) {
+    for (const bDir of brainDirs) {
+      const p = path.join(bDir, cid, '.system_generated/logs/transcript.jsonl');
+      if (fs.existsSync(p)) return p;
+    }
+  }
+
+  let prefix = cid ? cid.slice(0, 8) : null;
+  if (!prefix && sessionName && sessionName.startsWith('rc_')) {
+    prefix = sessionName.replace('rc_', '').slice(0, 8);
+  }
+
+  if (prefix) {
+    for (const bDir of brainDirs) {
+      if (!fs.existsSync(bDir)) continue;
+      try {
+        const entries = fs.readdirSync(bDir);
+        for (const entry of entries) {
+          if (entry.startsWith(prefix)) {
+            const p = path.join(bDir, entry, '.system_generated/logs/transcript.jsonl');
+            if (fs.existsSync(p)) return p;
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  return null;
+}
+
+function getTranscriptPath(cid, sessionName) {
+  const resolved = resolveTranscriptPath(cid, sessionName);
+  if (resolved) return resolved;
+  const home = process.env.HOME || '/home/ttolmany';
+  return path.join(home, '.gemini/antigravity-cli/brain', cid || 'unknown', '.system_generated/logs/transcript.jsonl');
 }
 
 class SessionChatPanelManager {
@@ -29,30 +68,33 @@ class SessionChatPanelManager {
     this.extensionUri = extensionUri;
     this.subscriptions = subscriptions;
     this.sendTextToTmux = sendTextToTmuxFn;
-    this.panels = new Map(); // key -> WebviewPanel
+    this.panels = new Map(); // key -> { panel, session, sessionName, tPath, lastMtime, limit, isTermActive, pollTimer }
   }
 
   syncTranscript(cid) {
     const key = `rc_${cid.slice(0, 8)}`;
-    const panel = this.panels.get(key);
-    if (panel) {
-      const tPath = getTranscriptPath(cid);
-      const parsed = parseTranscriptFile(tPath, 40);
-      panel.webview.postMessage({
-        type: 'initTurns',
-        turns: parsed.turns,
-        totalCount: parsed.totalCount,
-        hasEarlier: parsed.hasEarlier
-      });
+    const record = this.panels.get(key);
+    if (record && record.panel) {
+      const tPath = resolveTranscriptPath(cid, record.sessionName);
+      if (tPath) {
+        const parsed = parseTranscriptFile(tPath, record.limit || 50);
+        record.panel.webview.postMessage({
+          type: 'initTurns',
+          turns: parsed.turns,
+          totalCount: parsed.totalCount,
+          hasEarlier: parsed.hasEarlier,
+          session: record.session
+        });
+      }
     }
   }
 
   openOrRevealPanel(vscode, session) {
     const key = getPanelKey(session);
     const existing = this.panels.get(key);
-    if (existing) {
-      existing.reveal(vscode.ViewColumn.One);
-      return existing;
+    if (existing && existing.panel) {
+      existing.panel.reveal(vscode.ViewColumn.One);
+      return existing.panel;
     }
 
     const shortCid = session.cid ? `[${session.cid.slice(0, 4)}] ` : '';
@@ -69,56 +111,98 @@ class SessionChatPanelManager {
       }
     );
 
-    this.panels.set(key, panel);
+    const sessionName = session.cid ? `rc_${session.cid.slice(0, 8)}` : session.name;
+    const tPath = resolveTranscriptPath(session.cid, sessionName);
+
+    const record = {
+      panel,
+      session,
+      sessionName,
+      tPath,
+      lastMtime: 0,
+      limit: 50,
+      isTermActive: false,
+      pollTimer: null
+    };
+
+    this.panels.set(key, record);
+
+    const sendTurnsToWebview = (isInit = false) => {
+      if (!record.tPath) {
+        record.tPath = resolveTranscriptPath(record.session.cid, record.sessionName);
+      }
+      if (!record.tPath || !fs.existsSync(record.tPath)) return;
+
+      try {
+        const stat = fs.statSync(record.tPath);
+        if (!isInit && stat.mtimeMs === record.lastMtime) return;
+        record.lastMtime = stat.mtimeMs;
+
+        const parsed = parseTranscriptFile(record.tPath, record.limit);
+        record.panel.webview.postMessage({
+          type: isInit ? 'initTurns' : 'updateTurns',
+          turns: parsed.turns,
+          totalCount: parsed.totalCount,
+          hasEarlier: parsed.hasEarlier,
+          session: record.session
+        });
+      } catch (err) {}
+    };
+
+    const sendTerminalToWebview = (isInit = false) => {
+      try {
+        const pane = execSync(`tmux capture-pane -p -S -3000 -t "${record.sessionName}" 2>/dev/null`, { encoding: 'utf-8' });
+        record.panel.webview.postMessage({
+          type: isInit ? 'termInit' : 'termOutput',
+          data: pane
+        });
+      } catch (err) {}
+    };
+
+    // Live background polling (1.2s interval)
+    record.pollTimer = setInterval(() => {
+      if (!record.panel.visible) return;
+
+      // 1. Sync Chat turns if transcript modified
+      sendTurnsToWebview(false);
+
+      // 2. Sync Console terminal if active
+      if (record.isTermActive) {
+        sendTerminalToWebview(false);
+      }
+    }, 1200);
 
     panel.onDidDispose(() => {
+      if (record.pollTimer) clearInterval(record.pollTimer);
       this.panels.delete(key);
     }, null, this.subscriptions);
 
     panel.webview.html = this.getHtmlForWebview(panel.webview, session, title);
 
     panel.webview.onDidReceiveMessage((data) => {
-      let sessionName = session.cid ? `rc_${session.cid.slice(0, 8)}` : session.name;
-
-      if (data.command === 'sendPrompt') {
+      if (data.command === 'ready' || data.command === 'syncTurns') {
+        sendTurnsToWebview(true);
+      } else if (data.command === 'loadMoreTurns') {
+        record.limit += 50;
+        sendTurnsToWebview(true);
+      } else if (data.command === 'sendPrompt') {
         if (this.sendTextToTmux) {
-          this.sendTextToTmux(sessionName, data.text);
+          this.sendTextToTmux(record.sessionName, data.text);
         }
-      } else if (data.command === 'syncTurns') {
-        if (session.cid) {
-          const tPath = getTranscriptPath(session.cid);
-          const parsed = parseTranscriptFile(tPath, 40);
-          panel.webview.postMessage({
-            type: 'initTurns',
-            turns: parsed.turns,
-            totalCount: parsed.totalCount,
-            hasEarlier: parsed.hasEarlier,
-            session
-          });
-        }
+        // Rapid response checks after prompt
+        setTimeout(() => sendTurnsToWebview(false), 600);
+        setTimeout(() => sendTurnsToWebview(false), 1600);
       } else if (data.command === 'termActivate') {
-        try {
-          const pane = execSync(`tmux capture-pane -p -t "${sessionName}" 2>/dev/null`, { encoding: 'utf-8' });
-          panel.webview.postMessage({ type: 'termInit', data: pane });
-        } catch (e) {}
+        record.isTermActive = true;
+        sendTerminalToWebview(true);
+      } else if (data.command === 'termDeactivate') {
+        record.isTermActive = false;
       } else if (data.command === 'termData') {
         try {
-          execSync(`tmux send-keys -t "${sessionName}" -l ${JSON.stringify(data.data)} 2>/dev/null`);
+          execSync(`tmux send-keys -t "${record.sessionName}" -l ${JSON.stringify(data.data)} 2>/dev/null`);
         } catch (e) {}
       }
     });
-
-    if (session.cid) {
-      const tPath = getTranscriptPath(session.cid);
-      const parsed = parseTranscriptFile(tPath, 40);
-      panel.webview.postMessage({
-        type: 'initTurns',
-        turns: parsed.turns,
-        totalCount: parsed.totalCount,
-        hasEarlier: parsed.hasEarlier,
-        session
-      });
-    }
 
     return panel;
   }
@@ -142,7 +226,7 @@ class SessionChatPanelManager {
         <span class="header-title">${displayTitle}</span>
       </div>
       <div class="tab-switcher">
-        <button id="tab-chat" class="tab-btn active">💬 AI 대화창</button>
+        <button id="tab-chat" class="tab-btn active">�� AI 대화창</button>
         <button id="tab-term" class="tab-btn">💻 콘솔 터미널</button>
       </div>
       <div class="header-actions">
@@ -172,7 +256,8 @@ class SessionChatPanelManager {
 
     <div id="view-term" class="view-content">
       <div id="terminal-container" class="terminal-container">
-        <pre id="terminal-output" style="color:#f4f4f5;font-family:var(--editor-font);font-size:12px;line-height:1.4;white-space:pre-wrap;height:100%;overflow-y:auto;"></pre>
+        <pre id="terminal-output"></pre>
+        <button id="btn-term-scroll-bottom" class="term-scroll-btn" style="display:none;">⬇ 최신 터미널 출력으로 이동</button>
       </div>
     </div>
   </div>
@@ -187,6 +272,7 @@ class SessionChatPanelManager {
 module.exports = {
   getNonce,
   getPanelKey,
+  resolveTranscriptPath,
   getTranscriptPath,
   SessionChatPanelManager
 };
