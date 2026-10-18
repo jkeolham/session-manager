@@ -95,7 +95,8 @@ async function getCategorizedSessions() {
       pid,
       cmd,
       title: null,
-      cid: null
+      cid: null,
+      displayName: null
     };
 
     if (sessionName.startsWith('agy_')) {
@@ -104,6 +105,7 @@ async function getCategorizedSessions() {
         sessionObj.cid = cid;
         if (titles[cid] && titles[cid].title) {
           sessionObj.title = titles[cid].title;
+          sessionObj.displayName = `[${cid.slice(0, 4)}] ${sessionObj.title}`;
         }
       }
       result.agy.push(sessionObj);
@@ -117,6 +119,10 @@ async function getCategorizedSessions() {
         }
       } else {
         sessionObj.cid = prefix;
+      }
+      if (sessionObj.title) {
+        const shortCid = (sessionObj.cid || prefix).slice(0, 4);
+        sessionObj.displayName = `[${shortCid}] ${sessionObj.title}`;
       }
       result.agy.push(sessionObj);
     } else if (cmd === 'claude' || sessionName.toLowerCase().includes('claude')) {

@@ -139,13 +139,16 @@ class RemoteControlItem extends vscode.TreeItem {
 
 class SessionItem extends vscode.TreeItem {
   constructor(session, type) {
-    super(session.name, vscode.TreeItemCollapsibleState.None);
+    const label = session.displayName || session.name;
+    super(label, vscode.TreeItemCollapsibleState.None);
     this.session = session;
     this.type = type;
 
     const isInactive = session.cmd === 'bash' || session.cmd === 'sh';
     if (isInactive) {
       this.description = `[inactive / shell] PID ${session.pid}`;
+    } else if (session.displayName) {
+      this.description = `${session.name} • ${session.cmd || 'active'}`;
     } else if (session.title) {
       this.description = `${session.title} (${session.cmd || 'idle'})`;
     } else {
@@ -723,7 +726,7 @@ class PromptComposerViewProvider {
           for (const s of msg.agy) {
             const opt = document.createElement('option');
             opt.value = 'tmux:' + s.name;
-            opt.textContent = s.title ? (s.name + ' (' + s.title + ')') : s.name;
+            opt.textContent = s.displayName ? (s.displayName + ' (' + s.name + ')') : (s.title ? (s.name + ' (' + s.title + ')') : s.name);
             grp.appendChild(opt);
           }
           sessionSelect.appendChild(grp);
@@ -790,9 +793,11 @@ async function handleQuickPrompt(arg, treeDataProvider) {
       }
       for (const s of agyList) {
         items.push({
-          label: `$(sparkle) ${s.name}`,
-          description: s.title || s.cmd,
-          sessionName: s.name
+          label: `$(sparkle) ${s.displayName || s.name}`,
+          description: s.displayName ? `${s.name} • ${s.cmd}` : (s.title || s.cmd),
+          sessionName: s.name,
+          cid: s.cid,
+          title: s.title
         });
       }
       for (const s of otherList) {
