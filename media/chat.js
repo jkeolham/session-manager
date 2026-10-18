@@ -62,9 +62,20 @@ function parseMarkdownTables(text, tableBlocks) {
     const isValidSep = alignRow.every(c => /^:?-+:?$/.test(c));
     if (!isValidSep) return match;
 
-    const alignments = alignRow.map(c => {
+    const rowsData = [];
+    for (let r = 2; r < rawLines.length; r++) {
+      rowsData.push(parseRow(rawLines[r]));
+    }
+
+    const alignments = alignRow.map((c, colIdx) => {
       if (c.startsWith(':') && c.endsWith(':')) return 'center';
       if (c.endsWith(':')) return 'right';
+      const colVals = rowsData.map(r => r[colIdx] || '');
+      const maxLen = Math.max(0, ...colVals.map(v => v.length));
+      const hasNarrative = colVals.some(v => v.includes(',') || v.length > 22);
+      if (!hasNarrative && maxLen > 0 && maxLen <= 22) {
+        return 'center';
+      }
       return 'left';
     });
 

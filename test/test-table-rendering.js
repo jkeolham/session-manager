@@ -25,12 +25,13 @@ assert(html.includes('<thead><tr>'), 'Should contain thead');
 assert(html.includes('<tbody><tr>'), 'Should contain tbody');
 
 // Assert headers and alignments
-assert(html.includes('<th style="text-align:left;">시간대</th>'), 'Header should be aligned left');
+assert(html.includes('<th style="text-align:center;">시간대</th>'), 'Metric header should be centered');
+assert(html.includes('<th style="text-align:left;">판정 및 전략</th>'), 'Narrative header should be left aligned');
 assert(html.includes('<code class="code-pill">20LTC04</code>'), 'Header cell should render code pill');
 
 // Assert table data rows
-assert(html.includes('<td style="text-align:left;">현재 (05:00)</td>'), 'Data row cell should render correctly');
-assert(html.includes('<td style="text-align:left;">북북동 0.92kt (상승)</td>'), 'Data row cell should render correctly');
+assert(html.includes('<td style="text-align:center;">현재 (05:00)</td>'), 'Metric data row cell should be centered');
+assert(html.includes('<td style="text-align:center;">북북동 0.92kt (상승)</td>'), 'Metric velocity cell should be centered');
 
 // Assert blockquote and headings
 assert(html.includes('<h3 class="chat-h3">1. 예보점 대조 분석 (영흥도 남쪽 5km)</h3>'), 'Heading rendered');

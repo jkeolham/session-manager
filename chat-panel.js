@@ -243,6 +243,8 @@ class SessionChatPanelManager {
     <header class="chat-header">
       <div class="header-left">
         <span class="status-indicator active"></span>
+        <span class="breadcrumb-prefix">CLI Session</span>
+        <span class="breadcrumb-sep">/</span>
         <span class="header-title">${displayTitle}</span>
       </div>
       <div class="tab-switcher">
