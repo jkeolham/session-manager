@@ -592,3 +592,145 @@ li.chat-li {
   background: #1d4ed8;
   transform: translateY(-2px);
 }
+
+
+/* Markdown Tables */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  margin: 14px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: #18181b;
+}
+
+.chat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.chat-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.chat-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.chat-table tr:last-child td {
+  border-bottom: none;
+}
+
+.chat-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-table th:not(:last-child),
+.chat-table td:not(:last-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Blockquotes */
+blockquote.chat-quote {
+  margin: 10px 0;
+  padding: 6px 14px;
+  border-left: 3px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.06);
+  border-radius: 0 6px 6px 0;
+  color: #d4d4d8;
+  font-size: 13px;
+}
+
+/* Sidebar Specific Styles */
+body.is-sidebar {
+  font-size: 13px;
+}
+
+body.is-sidebar .chat-header.sidebar-target-header {
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+body.is-sidebar .target-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+body.is-sidebar .target-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 11.5px;
+}
+
+body.is-sidebar .session-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+body.is-sidebar .icon-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s ease;
+}
+
+body.is-sidebar .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+body.is-sidebar .messages-container {
+  padding: 10px 10px 16px 10px;
+  gap: 12px;
+}
+
+body.is-sidebar .user-bubble {
+  max-width: 90%;
+  font-size: 13px;
+  padding: 7px 12px;
+  border-radius: 14px;
+}
+
+body.is-sidebar .markdown-body {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+body.is-sidebar .composer-container {
+  padding: 8px 10px 10px 10px;
+  gap: 8px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+body.is-sidebar #composer-input {
+  height: 56px;
+  font-size: 12.5px;
+  padding: 8px 10px;
+}

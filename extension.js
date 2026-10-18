@@ -1,4 +1,5 @@
-const { SessionChatPanelManager } = require('./chat-panel');
+const { SessionChatPanelManager, resolveTranscriptPath } = require('./chat-panel');
+const { parseTranscriptFile } = require('./transcript-parser');
 const vscode = require('vscode');
 const { getCategorizedSessions } = require('./session-discovery');
 const { exec, execSync, execFileSync } = require('child_process');
@@ -387,6 +388,12 @@ class PromptComposerViewProvider {
     this._extensionUri = extensionUri;
     this.treeDataProvider = treeDataProvider;
     this._view = undefined;
+    this._currentTarget = '__active__';
+    this._currentSessionName = null;
+    this._currentCid = null;
+    this._tPath = null;
+    this._lastMtime = 0;
+    this._pollTimer = null;
   }
 
   resolveWebviewView(webviewView, context, _token) {
@@ -394,21 +401,46 @@ class PromptComposerViewProvider {
 
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [this._extensionUri]
+      localResourceRoots: [this._extensionUri, vscode.Uri.joinPath(this._extensionUri, 'media')]
     };
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
+    if (this._pollTimer) clearInterval(this._pollTimer);
+    this._pollTimer = setInterval(() => {
+      if (this._view && this._view.visible) {
+        this._syncCurrentSessionTurns(false);
+      }
+    }, 1200);
+
+    webviewView.onDidDispose(() => {
+      if (this._pollTimer) clearInterval(this._pollTimer);
+    });
+
     webviewView.webview.onDidReceiveMessage(async (data) => {
       if (data.command === 'sendPrompt') {
         await this._handleSendPrompt(data.text, data.target);
+        setTimeout(() => this._syncCurrentSessionTurns(false), 600);
+        setTimeout(() => this._syncCurrentSessionTurns(false), 1600);
       } else if (data.command === 'requestSessions') {
         this.updateSessions(this.treeDataProvider.cachedData);
         this.syncActiveTerminal(vscode.window.activeTerminal);
+      } else if (data.command === 'selectSession') {
+        this._selectSession(data.target);
+      } else if (data.command === 'syncTurns' || data.command === 'ready') {
+        this._syncCurrentSessionTurns(true);
+      } else if (data.command === 'openEditorTab') {
+        this._openCurrentInEditorTab(data.target);
+      } else if (data.command === 'openLink') {
+        if (data.url && data.url.startsWith('file://')) {
+          const filePath = data.url.replace(/^file:\/\//, '');
+          vscode.commands.executeCommand('vscode.open', vscode.Uri.file(filePath));
+        } else if (data.url) {
+          vscode.env.openExternal(vscode.Uri.parse(data.url));
+        }
       }
     });
 
-    // Send initial session data
     this.updateSessions(this.treeDataProvider.cachedData);
     this.syncActiveTerminal(vscode.window.activeTerminal);
   }
@@ -432,12 +464,107 @@ class PromptComposerViewProvider {
         label: res.label,
         sessionName: res.sessionName
       });
+      if (this._currentTarget === '__active__') {
+        this._currentSessionName = res.sessionName;
+        this._currentCid = res.cid || (res.sessionName && res.sessionName.startsWith('rc_') ? res.sessionName.slice(3) : null);
+        this._tPath = resolveTranscriptPath(this._currentCid, this._currentSessionName);
+        this._syncCurrentSessionTurns(true);
+      }
     } else {
       this._view.webview.postMessage({
         type: 'syncActiveSession',
         label: terminal ? terminal.name : '선택 필요',
         sessionName: null
       });
+    }
+  }
+
+  _selectSession(targetVal) {
+    this._currentTarget = targetVal || '__active__';
+    let sessionName = null;
+    let cid = null;
+
+    if (this._currentTarget === '__active__') {
+      const res = resolveTmuxSessionFromTerminal(vscode.window.activeTerminal, this.treeDataProvider.cachedData);
+      if (res) {
+        sessionName = res.sessionName;
+        cid = res.cid || (sessionName.startsWith('rc_') ? sessionName.slice(3) : null);
+      } else {
+        const rc = this.treeDataProvider.cachedData?.remoteControl;
+        if (rc && rc.length > 0) {
+          cid = rc[0].cid;
+          sessionName = getTmuxSessionName(cid);
+        }
+      }
+    } else if (this._currentTarget.startsWith('rc:')) {
+      cid = this._currentTarget.slice(3);
+      sessionName = getTmuxSessionName(cid);
+    } else if (this._currentTarget.startsWith('tmux:')) {
+      sessionName = this._currentTarget.slice(5);
+      const match = (this.treeDataProvider.cachedData?.agy || []).find(s => s.name === sessionName);
+      if (match && match.cid) cid = match.cid;
+    }
+
+    this._currentSessionName = sessionName;
+    this._currentCid = cid;
+    this._tPath = resolveTranscriptPath(cid, sessionName);
+    this._lastMtime = 0;
+    this._syncCurrentSessionTurns(true);
+  }
+
+  _syncCurrentSessionTurns(isInit = false) {
+    if (!this._view) return;
+    if (!this._tPath && (this._currentCid || this._currentSessionName)) {
+      this._tPath = resolveTranscriptPath(this._currentCid, this._currentSessionName);
+    }
+
+    if (!this._tPath || !fs.existsSync(this._tPath)) {
+      if (isInit) {
+        this._view.webview.postMessage({
+          type: 'initTurns',
+          turns: [],
+          totalCount: 0
+        });
+      }
+      return;
+    }
+
+    try {
+      const stat = fs.statSync(this._tPath);
+      if (!isInit && stat.mtimeMs === this._lastMtime) return;
+      this._lastMtime = stat.mtimeMs;
+
+      const parsed = parseTranscriptFile(this._tPath, 25);
+      this._view.webview.postMessage({
+        type: isInit ? 'initTurns' : 'updateTurns',
+        turns: parsed.turns,
+        totalCount: parsed.totalCount
+      });
+    } catch (e) {}
+  }
+
+  _openCurrentInEditorTab(targetVal) {
+    const target = targetVal || this._currentTarget;
+    let sessionObj = null;
+
+    if (target && target.startsWith('rc:')) {
+      const cid = target.slice(3);
+      const match = (this.treeDataProvider.cachedData?.remoteControl || []).find(s => s.cid === cid);
+      sessionObj = match || { cid, title: cid };
+    } else if (target && target.startsWith('tmux:')) {
+      const sName = target.slice(5);
+      sessionObj = { name: sName };
+    } else {
+      if (this._currentCid) {
+        const match = (this.treeDataProvider.cachedData?.remoteControl || []).find(s => s.cid === this._currentCid);
+        sessionObj = match || { cid: this._currentCid };
+      } else if (this._currentSessionName) {
+        sessionObj = { name: this._currentSessionName };
+      }
+    }
+
+    if (sessionObj) {
+      vscode.commands.executeCommand('sessionManager.openSessionPanel', sessionObj);
     }
   }
 
@@ -460,9 +587,8 @@ class PromptComposerViewProvider {
         targetSession = res.sessionName;
         targetLabel = res.label;
       } else {
-        // Fall back to first available session
-        const rc = this.treeDataProvider.cachedData.remoteControl;
-        const agy = this.treeDataProvider.cachedData.agy;
+        const rc = this.treeDataProvider.cachedData?.remoteControl;
+        const agy = this.treeDataProvider.cachedData?.agy;
         if (rc && rc.length > 0) {
           targetSession = getTmuxSessionName(rc[0].cid);
           targetLabel = `[${rc[0].cid.slice(0, 4)}] ${rc[0].title || rc[0].cid}`;
@@ -476,7 +602,7 @@ class PromptComposerViewProvider {
     } else if (targetVal.startsWith('rc:')) {
       const cid = targetVal.slice(3);
       targetSession = getTmuxSessionName(cid);
-      const match = (this.treeDataProvider.cachedData.remoteControl || []).find(s => s.cid === cid);
+      const match = (this.treeDataProvider.cachedData?.remoteControl || []).find(s => s.cid === cid);
       targetLabel = match ? `[${cid.slice(0, 4)}] ${match.title}` : targetSession;
       attachRemoteControl(cid, match ? match.title : null);
     } else if (targetVal.startsWith('tmux:')) {
@@ -505,440 +631,104 @@ class PromptComposerViewProvider {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};">
-  <style>
-    :root {
-      --input-bg: var(--vscode-input-background, #1e1e1e);
-      --input-fg: var(--vscode-input-foreground, #cccccc);
-      --input-border: var(--vscode-input-border, #3c3c3c);
-      --focus-border: var(--vscode-focusBorder, #007fd4);
-      --btn-bg: var(--vscode-button-background, #0e639c);
-      --btn-fg: var(--vscode-button-foreground, #ffffff);
-      --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
-      --sec-btn-bg: var(--vscode-button-secondaryBackground, #3a3d41);
-      --sec-btn-fg: var(--vscode-button-secondaryForeground, #ffffff);
-      --sec-btn-hover: var(--vscode-button-secondaryHoverBackground, #45494e);
-      --desc-fg: var(--vscode-descriptionForeground, #8c8c8c);
-      --font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
-      --editor-font: var(--vscode-editor-font-family, 'D2Coding', 'Cascadia Mono', Consolas, monospace);
-    }
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    body {
-      padding: 8px 10px;
-      font-family: var(--font-family);
-      font-size: 13px;
-      color: var(--input-fg);
-      background-color: transparent;
-      overflow-x: hidden;
-    }
-    .composer-header {
-      margin-bottom: 8px;
-    }
-    .target-bar {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-    }
-    .target-label {
-      color: var(--desc-fg);
-      white-space: nowrap;
-      font-weight: 500;
-    }
-    .session-select {
-      flex: 1;
-      min-width: 0;
-      background: var(--input-bg);
-      color: var(--input-fg);
-      border: 1px solid var(--input-border);
-      border-radius: 4px;
-      padding: 4px 6px;
-      font-size: 12px;
-      outline: none;
-      cursor: pointer;
-    }
-    .session-select:focus {
-      border-color: var(--focus-border);
-    }
-    .composer-box {
-      display: flex;
-      flex-direction: column;
-      border: 1px solid var(--input-border);
-      border-radius: 6px;
-      background: var(--input-bg);
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    }
-    .composer-box:focus-within {
-      border-color: var(--focus-border);
-      box-shadow: 0 0 0 1px var(--focus-border);
-    }
-    textarea {
-      width: 100%;
-      min-height: 80px;
-      max-height: 240px;
-      padding: 8px 10px;
-      background: transparent;
-      color: var(--input-fg);
-      border: none;
-      outline: none;
-      resize: none;
-      font-family: var(--editor-font);
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    textarea::placeholder {
-      color: var(--desc-fg);
-      font-family: var(--font-family);
-      font-size: 12px;
-      opacity: 0.75;
-    }
-    .composer-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 10px;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      background: rgba(0, 0, 0, 0.15);
-      border-bottom-left-radius: 6px;
-      border-bottom-right-radius: 6px;
-    }
-    .toggle-wrap {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      color: var(--desc-fg);
-      user-select: none;
-      cursor: pointer;
-    }
-    .toggle-wrap input {
-      cursor: pointer;
-      accent-color: var(--focus-border);
-    }
-    .btn-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    button {
-      padding: 4px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      border: none;
-      outline: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-    button:active {
-      transform: scale(0.98);
-    }
-    .btn-primary {
-      background: var(--btn-bg);
-      color: var(--btn-fg);
-    }
-    .btn-primary:hover {
-      background: var(--btn-hover);
-    }
-    .btn-secondary {
-      background: var(--sec-btn-bg);
-      color: var(--sec-btn-fg);
-    }
-    .btn-secondary:hover {
-      background: var(--sec-btn-hover);
-    }
-    .status-toast {
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 10px;
-      color: #4ade80;
-      background: rgba(34, 197, 94, 0.15);
-      border: 1px solid rgba(34, 197, 94, 0.3);
-      display: inline-block;
-      opacity: 0;
-      transition: opacity 0.2s ease;
-      pointer-events: none;
-    }
-    .status-toast.show {
-      opacity: 1;
-    }
-    .hint-bar {
-      margin-top: 6px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-      color: var(--desc-fg);
-    }
-    .hint-bar kbd {
-      background: rgba(255, 255, 255, 0.1);
-      padding: 1px 4px;
-      border-radius: 3px;
-      font-size: 10px;
-    }
-    .history-drawer {
-      margin-top: 8px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      padding-top: 6px;
-    }
-    .history-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 11px;
-      color: var(--desc-fg);
-      cursor: pointer;
-      padding: 2px 0;
-      user-select: none;
-    }
-    .history-list {
-      display: none;
-      flex-direction: column;
-      gap: 4px;
-      margin-top: 4px;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-    .history-item {
-      padding: 4px 8px;
-      font-size: 11px;
-      font-family: var(--editor-font);
-      background: rgba(255, 255, 255, 0.03);
-      border-radius: 4px;
-      color: var(--input-fg);
-      cursor: pointer;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      border: 1px solid transparent;
-    }
-    .history-item:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: var(--focus-border);
-    }
-  </style>
+  <link rel="stylesheet" href="${webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.css'))}">
 </head>
-<body>
-  <div class="composer-header">
-    <div class="target-bar">
-      <span class="target-label">🎯 대상:</span>
-      <select id="session-select" class="session-select">
-        <option value="__active__">⚡ [자동] 현재 활성 터미널</option>
-      </select>
-    </div>
-  </div>
+<body class="is-sidebar">
+  <div class="panel-container">
+    <header class="chat-header sidebar-target-header">
+      <div class="target-bar">
+        <span class="target-label">🎯 대상:</span>
+        <select id="session-select" class="session-select"></select>
+        <button id="btn-sync" class="icon-btn" title="대화 동기화">🔄</button>
+        <button id="btn-open-tab" class="icon-btn" title="에디터 탭으로 열기">↗</button>
+      </div>
+    </header>
 
-  <div class="composer-box">
-    <textarea id="prompt-textarea" placeholder="이 창과 동일하게 마우스 드래그 선택/삭제, Shift+방향키, Ctrl+C/V/X 모두 지원됩니다..."></textarea>
-    <div class="composer-footer">
-      <label class="toggle-wrap" title="Enter 키를 누르면 바로 세션으로 전송합니다. Shift+Enter로 줄바꿈합니다.">
-        <input type="checkbox" id="enter-send-toggle" checked />
-        <span>Enter 전송</span>
-      </label>
-      <div class="btn-group">
-        <button id="clear-btn" class="btn-secondary" title="텍스트 지우기">지우기</button>
-        <button id="send-btn" class="btn-primary" title="세션으로 전송">전송 🚀</button>
+    <div id="messages-container" class="messages-container">
+      <div id="empty-state" class="empty-state">대화 기록을 불러오는 중...</div>
+    </div>
+
+    <div class="composer-container">
+      <textarea id="composer-input" placeholder="메시지를 입력하세요 (Shift+Enter 줄바꿈)..."></textarea>
+      <div class="composer-footer">
+        <label class="toggle-wrap">
+          <input type="checkbox" id="enter-send-toggle" checked />
+          <span>Enter 전송</span>
+        </label>
+        <div class="btn-group">
+          <button id="btn-clear" class="btn-secondary">지우기</button>
+          <button id="btn-send" class="btn-primary">전송 🚀</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="hint-bar">
-    <span>단축키: <kbd>Alt+I</kbd> 퀵 다이얼로그</span>
-    <div id="status-toast" class="status-toast">✓ 전송 완료</div>
-  </div>
-
-  <div class="history-drawer">
-    <div class="history-header" id="history-toggle">
-      <span>🕒 최근 입력 내역</span>
-      <span id="history-arrow">▾</span>
-    </div>
-    <div id="history-list" class="history-list"></div>
-  </div>
-
+  <script nonce="${nonce}" src="${webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'chat.js'))}"></script>
   <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    const textarea = document.getElementById('prompt-textarea');
-    const select = document.getElementById('session-select');
-    const sendBtn = document.getElementById('send-btn');
-    const clearBtn = document.getElementById('clear-btn');
-    const enterToggle = document.getElementById('enter-send-toggle');
-    const toast = document.getElementById('status-toast');
-    const historyList = document.getElementById('history-list');
-    const historyToggle = document.getElementById('history-toggle');
-    const historyArrow = document.getElementById('history-arrow');
+    const sessionSelect = document.getElementById('session-select');
+    const btnOpenTab = document.getElementById('btn-open-tab');
 
-    let history = [];
-    let historyIndex = -1;
-    let savedState = vscode.getState() || {};
-    if (savedState.history) history = savedState.history;
-    if (savedState.enterToSend !== undefined) enterToggle.checked = savedState.enterToSend;
-
-    function renderHistory() {
-      historyList.innerHTML = '';
-      if (history.length === 0) {
-        historyList.innerHTML = '<div style="color:var(--desc-fg);font-size:11px;padding:4px;">최근 전송 내역이 없습니다.</div>';
-        return;
-      }
-      history.slice(0, 5).forEach((itemText) => {
-        const div = document.createElement('div');
-        div.className = 'history-item';
-        div.textContent = itemText;
-        div.title = itemText;
-        div.onclick = () => {
-          textarea.value = itemText;
-          autoResize();
-          textarea.focus();
-        };
-        historyList.appendChild(div);
+    if (sessionSelect) {
+      sessionSelect.addEventListener('change', () => {
+        vscode.postMessage({ command: 'selectSession', target: sessionSelect.value });
       });
     }
 
-    let historyOpen = false;
-    historyToggle.onclick = () => {
-      historyOpen = !historyOpen;
-      historyList.style.display = historyOpen ? 'flex' : 'none';
-      historyArrow.textContent = historyOpen ? '▴' : '▾';
-    };
-
-    function autoResize() {
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.max(80, Math.min(textarea.scrollHeight, 240)) + 'px';
-    }
-
-    textarea.addEventListener('input', () => {
-      autoResize();
-      historyIndex = -1;
-    });
-
-    enterToggle.addEventListener('change', () => {
-      vscode.setState({ ...vscode.getState(), enterToSend: enterToggle.checked });
-    });
-
-    function showToast(msg) {
-      toast.textContent = msg || '✓ 전송 완료';
-      toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 2000);
-    }
-
-    function doSend() {
-      const text = textarea.value.trim();
-      if (!text) return;
-
-      const targetVal = select.value;
-      vscode.postMessage({
-        command: 'sendPrompt',
-        text: text,
-        target: targetVal
+    if (btnOpenTab) {
+      btnOpenTab.addEventListener('click', () => {
+        vscode.postMessage({ command: 'openEditorTab', target: sessionSelect ? sessionSelect.value : null });
       });
-
-      history = [text, ...history.filter(h => h !== text)].slice(0, 20);
-      historyIndex = -1;
-      vscode.setState({ ...vscode.getState(), history });
-      renderHistory();
-
-      textarea.value = '';
-      autoResize();
-      showToast('✓ 세션으로 전송 완료');
-      textarea.focus();
     }
-
-    sendBtn.onclick = doSend;
-    clearBtn.onclick = () => {
-      textarea.value = '';
-      autoResize();
-      textarea.focus();
-    };
-
-    textarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        if (enterToggle.checked) {
-          if (!e.shiftKey) {
-            e.preventDefault();
-            doSend();
-          }
-        } else {
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            doSend();
-          }
-        }
-      } else if (e.key === 'ArrowUp' && textarea.selectionStart === 0 && textarea.value === '') {
-        if (history.length > 0) {
-          e.preventDefault();
-          historyIndex = Math.min(historyIndex + 1, history.length - 1);
-          textarea.value = history[historyIndex];
-          autoResize();
-        }
-      } else if (e.key === 'ArrowDown' && historyIndex >= 0) {
-        e.preventDefault();
-        historyIndex = Math.max(-1, historyIndex - 1);
-        textarea.value = historyIndex >= 0 ? history[historyIndex] : '';
-        autoResize();
-      }
-    });
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'updateSessions') {
-        const currentVal = select.value;
-        select.innerHTML = '<option value="__active__">⚡ [자동] 현재 활성 터미널</option>';
+        const currentVal = sessionSelect.value;
+        sessionSelect.innerHTML = '';
 
-        if (msg.remoteControl && msg.remoteControl.length > 0) {
-          const group = document.createElement('optgroup');
-          group.label = 'Remote Control (AGY) Sessions';
-          msg.remoteControl.forEach(s => {
+        const optAuto = document.createElement('option');
+        optAuto.value = '__active__';
+        optAuto.textContent = '⚡ [자동] 활성 세션';
+        sessionSelect.appendChild(optAuto);
+
+        if (Array.isArray(msg.remoteControl) && msg.remoteControl.length > 0) {
+          const grp = document.createElement('optgroup');
+          grp.label = '── Remote Control ──';
+          for (const s of msg.remoteControl) {
             const opt = document.createElement('option');
             opt.value = 'rc:' + s.cid;
-            opt.textContent = '[' + s.cid.slice(0, 4) + '] ' + (s.title || 'AGY Session');
-            group.appendChild(opt);
-          });
-          select.appendChild(group);
+            const shortCid = s.cid ? s.cid.slice(0, 4) : '';
+            opt.textContent = '[' + shortCid + '] ' + (s.title || s.cid);
+            grp.appendChild(opt);
+          }
+          sessionSelect.appendChild(grp);
         }
 
-        if (msg.agy && msg.agy.length > 0) {
-          const group = document.createElement('optgroup');
-          group.label = 'Active tmux Sessions (agy_*)';
-          msg.agy.forEach(s => {
+        if (Array.isArray(msg.agy) && msg.agy.length > 0) {
+          const grp = document.createElement('optgroup');
+          grp.label = '── AGY Tmux ──';
+          for (const s of msg.agy) {
             const opt = document.createElement('option');
             opt.value = 'tmux:' + s.name;
-            opt.textContent = s.name + (s.title ? ' (' + s.title + ')' : '');
-            group.appendChild(opt);
-          });
-          select.appendChild(group);
+            opt.textContent = s.title ? (s.name + ' (' + s.title + ')') : s.name;
+            grp.appendChild(opt);
+          }
+          sessionSelect.appendChild(grp);
         }
 
-        if (msg.other && msg.other.length > 0) {
-          const group = document.createElement('optgroup');
-          group.label = 'Other tmux Sessions';
-          msg.other.forEach(s => {
-            const opt = document.createElement('option');
-            opt.value = 'tmux:' + s.name;
-            opt.textContent = s.name + ' (' + (s.cmd || 'idle') + ')';
-            group.appendChild(opt);
-          });
-          select.appendChild(group);
-        }
-
-        const exists = Array.from(select.options).some(o => o.value === currentVal);
-        if (exists) {
-          select.value = currentVal;
+        if (currentVal) {
+          sessionSelect.value = currentVal;
         }
       } else if (msg.type === 'syncActiveSession') {
-        const activeOpt = select.options[0];
-        if (activeOpt) {
-          activeOpt.textContent = '⚡ [자동] 현재: ' + (msg.label || '활성 터미널');
+        if (sessionSelect && sessionSelect.value === '__active__') {
+          const autoOpt = sessionSelect.querySelector('option[value="__active__"]');
+          if (autoOpt) {
+            autoOpt.textContent = '⚡ [자동] 현재: ' + (msg.label || '선택 필요');
+          }
         }
-      } else if (msg.type === 'focusInput') {
-        textarea.focus();
       }
     });
 
-    renderHistory();
     vscode.postMessage({ command: 'requestSessions' });
   </script>
 </body>

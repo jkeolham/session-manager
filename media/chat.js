@@ -1,3 +1,4 @@
+
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
 const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : { postMessage: () => {} };
 if (isBrowser) {
@@ -43,66 +44,133 @@ function cleanUserMessageText(raw) {
   return text.trim();
 }
 
+function parseMarkdownTables(text, tableBlocks) {
+  const tableRegex = /((?:^[ \t]*\|.+?\|[ \t]*\r?\n)+(?:^[ \t]*\|[\s\-:|]+?\|[ \t]*\r?\n)(?:^[ \t]*\|.+?\|[ \t]*(?:\r?\n|$))+)/gm;
+
+  return text.replace(tableRegex, (match) => {
+    const rawLines = match.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (rawLines.length < 2) return match;
+
+    const parseRow = (line) => {
+      let trimmed = line.replace(/^\||\|$/g, '');
+      return trimmed.split('|').map(c => c.trim());
+    };
+
+    const headerCols = parseRow(rawLines[0]);
+    const alignRow = parseRow(rawLines[1]);
+
+    const isValidSep = alignRow.every(c => /^:?-+:?$/.test(c));
+    if (!isValidSep) return match;
+
+    const alignments = alignRow.map(c => {
+      if (c.startsWith(':') && c.endsWith(':')) return 'center';
+      if (c.endsWith(':')) return 'right';
+      return 'left';
+    });
+
+    const formatCell = (str) => {
+      let s = escapeHtml(str);
+      s = s.replace(/`([^`]+)`/g, '<code class="code-pill">$1</code>');
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<em>$1</em>');
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="chat-link" data-url="$2">$1</a>');
+      return s;
+    };
+
+    let html = '<div class="table-container"><table class="chat-table"><thead><tr>';
+    for (let c = 0; c < headerCols.length; c++) {
+      const align = alignments[c] || 'left';
+      html += `<th style="text-align:${align};">${formatCell(headerCols[c])}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+
+    for (let r = 2; r < rawLines.length; r++) {
+      const cols = parseRow(rawLines[r]);
+      html += '<tr>';
+      for (let c = 0; c < headerCols.length; c++) {
+        const align = alignments[c] || 'left';
+        const val = cols[c] !== undefined ? cols[c] : '';
+        html += `<td style="text-align:${align};">${formatCell(val)}</td>`;
+      }
+      html += '</tr>';
+    }
+
+    html += '</tbody></table></div>';
+    const id = `__TABLE_BLOCK_${tableBlocks.length}__`;
+    tableBlocks.push(html);
+    return `\n\n${id}\n\n`;
+  });
+}
+
 function renderMarkdown(rawText) {
   if (!rawText) return '';
 
-  // 1. Preserve fenced code blocks
+  // 1. Extract code blocks
   const codeBlocks = [];
   let text = rawText.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
     const id = `__CODE_BLOCK_${codeBlocks.length}__`;
-    codeBlocks.push({ lang: lang || 'text', code });
-    return id;
+    codeBlocks.push({ lang: lang || 'text', code: escapeHtml(code.trim()) });
+    return `\n\n${id}\n\n`;
   });
 
-  // 2. Escape HTML
+  // 2. Extract markdown tables
+  const tableBlocks = [];
+  text = parseMarkdownTables(text, tableBlocks);
+
+  // 3. Escape HTML on remaining text
   text = escapeHtml(text);
 
-  // 3. Headings
+  // 4. Headings
   text = text.replace(/^### (.*$)/gim, '<h3 class="chat-h3">$1</h3>');
   text = text.replace(/^## (.*$)/gim, '<h2 class="chat-h2">$1</h2>');
   text = text.replace(/^# (.*$)/gim, '<h1 class="chat-h1">$1</h1>');
 
-  // 4. Dividers
+  // 5. Dividers
   text = text.replace(/^(?:---|[*]{3}|_{3})\s*$/gim, '<hr class="chat-divider" />');
 
-  // 5. Links
+  // 6. Blockquotes
+  text = text.replace(/^\s*&gt;\s+(.*)$/gim, '<blockquote class="chat-quote">$1</blockquote>');
+
+  // 7. Links
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="chat-link" data-url="$2">$1</a>');
 
-  // 6. Inline code pills
+  // 8. Inline code pills
   text = text.replace(/`([^`]+)`/g, '<code class="code-pill">$1</code>');
 
-  // 7. Bullet lists (before italic)
+  // 9. Bullet lists
   text = text.replace(/^\s*[-*]\s+(.*)$/gim, '<li class="chat-li">$1</li>');
   text = text.replace(/(<li class="chat-li">[\s\S]*?<\/li>)/gim, '<ul class="chat-ul">$1</ul>');
   text = text.replace(/<\/ul>\s*<ul class="chat-ul">/gim, '');
 
-  // 8. Bold & Italic
+  // 10. Bold & Italic
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+  text = text.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<em>$1</em>');
 
-  // 9. Paragraph breaks
-  text = text.replace(/\n\n+/g, '</p><p class="chat-p">');
-  text = text.replace(/\n/g, '<br/>');
-  text = '<p class="chat-p">' + text + '</p>';
-  text = text.replace(/<p class="chat-p">\s*<\/p>/g, '');
-  text = text.replace(/<p class="chat-p">(<h[1-3][^>]*>)/g, '$1');
-  text = text.replace(/(<\/h[1-3]>)<\/p>/g, '$1');
-  text = text.replace(/<p class="chat-p">(<hr[^>]*>)/g, '$1');
-  text = text.replace(/(<hr[^>]*>)<\/p>/g, '$1');
-  text = text.replace(/<p class="chat-p">(<ul[^>]*>)/g, '$1');
-  text = text.replace(/(<\/ul>)<\/p>/g, '$1');
+  // 11. Clean block paragraph handling
+  const blocks = text.split(/\n\n+/).map(b => b.trim()).filter(Boolean);
+  const processed = blocks.map(b => {
+    if (/^(?:<h[1-3]|<hr|<ul|<blockquote|__TABLE_BLOCK_|__CODE_BLOCK_)/.test(b)) {
+      return b;
+    }
+    return '<p class="chat-p">' + b.replace(/\n/g, '<br/>') + '</p>';
+  });
+  text = processed.join('\n');
 
-  // 10. Restore code blocks
+  // 12. Restore tables
+  for (let i = 0; i < tableBlocks.length; i++) {
+    text = text.replace(`__TABLE_BLOCK_${i}__`, tableBlocks[i]);
+  }
+
+  // 13. Restore code blocks
   for (let i = 0; i < codeBlocks.length; i++) {
     const { lang, code } = codeBlocks[i];
-    const escapedCode = escapeHtml(code.trim());
     const blockHtml = `
       <div class="code-block-wrap">
         <div class="code-block-header">
           <span class="code-lang">${lang}</span>
           <button class="copy-code-btn" type="button">복사</button>
         </div>
-        <pre><code class="language-${lang}">${escapedCode}</code></pre>
+        <pre><code class="language-${lang}">${code}</code></pre>
       </div>`;
     text = text.replace(`__CODE_BLOCK_${i}__`, blockHtml);
   }
@@ -187,9 +255,13 @@ function doSend() {
     scrollToBottom();
   }
 
+  const sessionSelect = document.getElementById('session-select');
+  const target = sessionSelect ? sessionSelect.value : null;
+
   vscode.postMessage({
     command: 'sendPrompt',
-    text: text
+    text: text,
+    target: target
   });
 
   composerInput.value = '';
@@ -336,6 +408,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     escapeHtml,
     cleanUserMessageText,
+    parseMarkdownTables,
     renderMarkdown,
     renderTurn
   };
