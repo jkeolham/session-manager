@@ -248,7 +248,8 @@
 
       chatHistory.innerHTML = '';
       if (data.turns && data.turns.length > 0) {
-        data.turns.forEach(turn => appendTurn(turn));
+        const grouped = groupTurnsForDisplay(data.turns);
+        grouped.forEach(turn => appendTurn(turn));
       } else if (data.terminalOutput) {
         renderTerminalScreen(data.terminalOutput, sessionName);
       } else {
@@ -262,6 +263,44 @@
 
     // Connect SSE stream
     connectStream(cid, sessionName);
+  }
+
+  function groupTurnsForDisplay(rawTurns) {
+    if (!Array.isArray(rawTurns)) return [];
+    const grouped = [];
+
+    for (const turn of rawTurns) {
+      if (turn.role === 'user') {
+        grouped.push({ ...turn });
+      } else if (turn.role === 'assistant') {
+        const prev = grouped[grouped.length - 1];
+        if (prev && prev.role === 'assistant') {
+          // Merge with previous assistant turn
+          if (turn.thinking && typeof turn.thinking === 'string' && turn.thinking.trim()) {
+            prev.thinkings = prev.thinkings || (prev.thinking ? [prev.thinking] : []);
+            prev.thinkings.push(turn.thinking.trim());
+            prev.thinking = turn.thinking.trim();
+          }
+          if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
+            prev.toolCalls = (prev.toolCalls || []).concat(turn.toolCalls);
+          }
+          if (turn.content && typeof turn.content === 'string' && turn.content.trim()) {
+            prev.content = (prev.content ? prev.content + '\n\n' : '') + turn.content.trim();
+          }
+          prev.timestamp = turn.timestamp || prev.timestamp;
+        } else {
+          grouped.push({
+            ...turn,
+            thinkings: turn.thinking ? [turn.thinking.trim()] : [],
+            toolCalls: Array.isArray(turn.toolCalls) ? [...turn.toolCalls] : []
+          });
+        }
+      } else {
+        grouped.push({ ...turn });
+      }
+    }
+
+    return grouped;
   }
 
   function renderTerminalScreen(text, sessionName) {
@@ -284,42 +323,115 @@
     }
   }
 
-  function appendTurn(turn) {
-    const msgEl = document.createElement('div');
-    msgEl.className = `message ${turn.role || 'assistant'}`;
-
+  function buildAssistantTurnBody(turn) {
     let bodyHtml = '';
 
-    // Thinking Block (if any)
-    if (turn.thinking) {
+    const hasThinkings = (turn.thinkings && turn.thinkings.length > 0) || (turn.thinking && turn.thinking.trim());
+    const toolList = Array.isArray(turn.toolCalls) ? turn.toolCalls : [];
+    const toolCount = toolList.length;
+    const hasWorkProcess = hasThinkings || toolCount > 0;
+
+    if (hasWorkProcess) {
+      const parts = [];
+      if (hasThinkings) {
+        const count = turn.thinkings ? turn.thinkings.length : 1;
+        parts.push(count > 1 ? `사고 과정 ${count}단계` : '사고 과정');
+      }
+      if (toolCount > 0) {
+        parts.push(`도구 실행 ${toolCount}건`);
+      }
+      const summaryLabel = `⚙️ 작업 과정 (${parts.join(' · ')})`;
+
+      let innerHtml = '';
+      if (hasThinkings) {
+        const fullThinking = turn.thinkings && turn.thinkings.length > 0
+          ? turn.thinkings.join('\n\n---\n\n')
+          : turn.thinking;
+        innerHtml += `
+          <div class="process-section">
+            <div class="process-subtitle">💭 사고 과정</div>
+            <div class="process-text">${escapeHtml(fullThinking)}</div>
+          </div>
+        `;
+      }
+
+      if (toolCount > 0) {
+        innerHtml += `
+          <div class="process-section">
+            <div class="process-subtitle">🛠️ 도구 실행 내역 (${toolCount}건)</div>
+            <div class="process-tools-list">
+        `;
+        toolList.forEach((tc, idx) => {
+          const title = tc.label || tc.summary || tc.name || `도구 #${idx + 1}`;
+          let cmdStr = '';
+          if (tc.args && typeof tc.args === 'object') {
+            if (tc.args.CommandLine) cmdStr = tc.args.CommandLine;
+            else if (tc.args.AbsolutePath) cmdStr = tc.args.AbsolutePath;
+            else if (tc.args.query) cmdStr = tc.args.query;
+            else if (Object.keys(tc.args).length > 0) cmdStr = JSON.stringify(tc.args);
+          }
+          innerHtml += `
+            <div class="process-tool-item">
+              <div class="tool-item-header">
+                <span class="tool-badge">${escapeHtml(tc.name || 'tool')}</span>
+                <span class="tool-title">${escapeHtml(title)}</span>
+              </div>
+              ${cmdStr ? `<pre class="tool-cmd">${escapeHtml(cmdStr)}</pre>` : ''}
+              ${tc.output ? `<pre class="tool-output">${escapeHtml(tc.output)}</pre>` : ''}
+            </div>
+          `;
+        });
+        innerHtml += `
+            </div>
+          </div>
+        `;
+      }
+
       bodyHtml += `
-        <details class="thinking-block">
-          <summary>💭 사고 과정 확인</summary>
-          <div class="tool-output">${escapeHtml(turn.thinking)}</div>
+        <details class="work-process-block">
+          <summary class="work-process-summary">
+            <span class="work-process-label">${escapeHtml(summaryLabel)}</span>
+          </summary>
+          <div class="work-process-body">
+            ${innerHtml}
+          </div>
         </details>
       `;
     }
 
-    // Tool Calls (if any)
-    if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
-      turn.toolCalls.forEach(tc => {
-        const title = tc.summary || tc.name || '도구 실행';
-        bodyHtml += `
-          <details class="tool-call">
-            <summary>🛠️ ${escapeHtml(title)}</summary>
-            ${tc.output ? `<div class="tool-output">${escapeHtml(tc.output)}</div>` : ''}
-          </details>
-        `;
-      });
+    const content = turn.content || turn.text || '';
+    if (content.trim()) {
+      bodyHtml += `<div class="turn-markdown">${renderMarkdown(content)}</div>`;
+    } else if (!hasWorkProcess) {
+      bodyHtml += `<div class="turn-markdown empty-content">(내용 없음)</div>`;
     }
 
-    // Main text content
-    const content = turn.content || turn.text || '';
-    bodyHtml += renderMarkdown(content);
+    return bodyHtml;
+  }
 
-    msgEl.innerHTML = `<div class="bubble">${bodyHtml}</div>`;
+  function appendTurn(turn) {
+    const msgEl = document.createElement('div');
+    msgEl.className = `message ${turn.role || 'assistant'}`;
+    msgEl.__turnData = turn;
+
+    if (turn.role === 'user') {
+      msgEl.innerHTML = `<div class="bubble">${escapeHtml(turn.content || '')}</div>`;
+    } else {
+      msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn)}</div>`;
+    }
+
     chatHistory.appendChild(msgEl);
     scrollToBottom();
+  }
+
+  function updateAssistantTurnElement(msgEl, turn) {
+    msgEl.__turnData = turn;
+    const wasOpen = msgEl.querySelector('.work-process-block')?.open;
+    msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn)}</div>`;
+    if (wasOpen) {
+      const block = msgEl.querySelector('.work-process-block');
+      if (block) block.open = true;
+    }
   }
 
   function connectStream(cid, sessionName) {
@@ -340,6 +452,29 @@
 
         const term = chatHistory.querySelector('.terminal-container');
         if (term) term.remove();
+
+        // Merge with last message if it is an assistant turn
+        const lastMsg = chatHistory.lastElementChild;
+        if (lastMsg && lastMsg.classList.contains('assistant') && turn.role === 'assistant') {
+          const prevTurn = lastMsg.__turnData;
+          if (prevTurn) {
+            if (turn.thinking && typeof turn.thinking === 'string' && turn.thinking.trim()) {
+              prevTurn.thinkings = prevTurn.thinkings || (prevTurn.thinking ? [prevTurn.thinking] : []);
+              prevTurn.thinkings.push(turn.thinking.trim());
+              prevTurn.thinking = turn.thinking.trim();
+            }
+            if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
+              prevTurn.toolCalls = (prevTurn.toolCalls || []).concat(turn.toolCalls);
+            }
+            if (turn.content && typeof turn.content === 'string' && turn.content.trim()) {
+              prevTurn.content = (prevTurn.content ? prevTurn.content + '\n\n' : '') + turn.content.trim();
+            }
+            prevTurn.timestamp = turn.timestamp || prevTurn.timestamp;
+            updateAssistantTurnElement(lastMsg, prevTurn);
+            scrollToBottom();
+            return;
+          }
+        }
 
         appendTurn(turn);
       } catch (err) {

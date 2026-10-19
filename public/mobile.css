@@ -424,36 +424,142 @@ body {
   line-height: 1.45;
 }
 
-/* Tool Calls & Thinking Accordions */
-details.tool-call, details.thinking-block {
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  margin: 8px 0;
+/* Unified Work Process Accordion */
+details.work-process-block {
+  background: rgba(22, 27, 34, 0.7);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 6px 0 10px 0;
   overflow: hidden;
+  transition: all 0.2s ease;
 }
 
-details summary {
+details.work-process-block[open] {
+  background: rgba(13, 17, 23, 0.95);
+  border-color: #388bfd44;
+}
+
+.work-process-summary {
+  display: flex;
+  align-items: center;
   padding: 8px 12px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
+  background-color: transparent;
+  transition: color 0.15s, background-color 0.15s;
 }
 
-details[open] summary {
+.work-process-summary:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+details.work-process-block[open] .work-process-summary {
   border-bottom: 1px solid var(--border-subtle);
+  color: #79c0ff;
+}
+
+.work-process-body {
+  padding: 10px 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 450px;
+  overflow-y: auto;
+}
+
+.process-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.process-subtitle {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.process-text {
+  color: var(--text-secondary);
+  line-height: 1.45;
+  background-color: rgba(0, 0, 0, 0.35);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.process-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.process-tool-item {
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.tool-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-badge {
+  display: inline-block;
+  background-color: #1f242c;
+  color: #58a6ff;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.tool-title {
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-cmd {
+  margin: 6px 0 0 0;
+  padding: 6px 8px;
+  background-color: #0b0e14;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #79c0ff;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .tool-output {
-  padding: 10px 12px;
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  background: rgba(0, 0, 0, 0.4);
-  max-height: 240px;
-  overflow-y: auto;
+  margin: 6px 0 0 0;
+  padding: 6px 8px;
+  background-color: #0b0e14;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #8b949e;
   white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 /* Floating Scroll Bottom Button */
