@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const { getCategorizedSessions } = require('./session-discovery.js');
-const { parseTranscriptFile } = require('./transcript-parser.js');
+const { parseTranscriptFile, parseTranscriptString } = require('./transcript-parser.js');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -179,7 +179,75 @@ export function createServer(options = {}) {
         return;
       }
 
-      // 3. POST /api/send
+      // 3. GET /api/stream (Server-Sent Events)
+      if (req.method === 'GET' && pathname === '/api/stream') {
+        const cid = urlObj.searchParams.get('cid');
+        const session = urlObj.searchParams.get('session');
+
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*'
+        });
+
+        const sendEvent = (event, data) => {
+          res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        };
+
+        sendEvent('connected', { cid, session, timestamp: Date.now() });
+
+        // Heartbeat ping every 25 seconds
+        const pingInterval = setInterval(() => {
+          sendEvent('ping', { timestamp: Date.now() });
+        }, 25000);
+
+        // File watcher for transcript.jsonl
+        let tPath = resolveTranscriptPath(cid, session);
+        let lastSize = 0;
+        if (tPath && fs.existsSync(tPath)) {
+          try {
+            lastSize = fs.statSync(tPath).size;
+          } catch (e) {}
+        }
+
+        const pollInterval = setInterval(() => {
+          if (!tPath) {
+            tPath = resolveTranscriptPath(cid, session);
+          }
+          if (!tPath || !fs.existsSync(tPath)) return;
+
+          try {
+            const stat = fs.statSync(tPath);
+            if (stat.size > lastSize) {
+              const fd = fs.openSync(tPath, 'r');
+              const buffer = Buffer.alloc(stat.size - lastSize);
+              fs.readSync(fd, buffer, 0, buffer.length, lastSize);
+              fs.closeSync(fd);
+              lastSize = stat.size;
+
+              const newChunk = buffer.toString('utf-8');
+              const parsed = parseTranscriptString(newChunk);
+              if (parsed && parsed.turns && parsed.turns.length > 0) {
+                for (const turn of parsed.turns) {
+                  sendEvent('turn', turn);
+                }
+              }
+            } else if (stat.size < lastSize) {
+              lastSize = stat.size;
+            }
+          } catch (err) {}
+        }, 1000);
+
+        req.on('close', () => {
+          clearInterval(pingInterval);
+          clearInterval(pollInterval);
+        });
+
+        return;
+      }
+
+      // 4. POST /api/send
       if (req.method === 'POST' && pathname === '/api/send') {
         let body = '';
         req.on('data', chunk => {
