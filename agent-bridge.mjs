@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
 import fs from 'fs';
@@ -35,6 +35,12 @@ export class AgentBridgeManager extends EventEmitter {
       return worker;
     }
 
+    // Clean up any legacy tmux session to prevent SQLite locks
+    const oldTmux = `rc_${cid.slice(0, 8)}`;
+    try {
+      execSync(`tmux kill-session -t "${oldTmux}" 2>/dev/null || true`);
+    } catch (e) {}
+
     const customPath = `${path.join(process.env.HOME || '/home/ttolmany', '.local/bin')}:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`;
     const proc = spawn(this.agyBin, [
       `--conversation=${cid}`,
@@ -55,6 +61,12 @@ export class AgentBridgeManager extends EventEmitter {
       this.emit('error', { cid, error: err });
     });
 
+    if (proc.stdin) {
+      proc.stdin.on('error', (err) => {
+        console.error(`[AgentBridge stdin ${cid.slice(0, 8)} error]:`, err.message);
+      });
+    }
+
     worker = {
       cid,
       proc,
@@ -64,6 +76,7 @@ export class AgentBridgeManager extends EventEmitter {
     };
 
     proc.stdout.on('data', (chunk) => {
+      worker.lastUsed = Date.now();
       worker.lineRemainder += chunk.toString('utf-8');
       const lines = worker.lineRemainder.split('\n');
       worker.lineRemainder = lines.pop(); // keep partial
@@ -114,8 +127,11 @@ export class AgentBridgeManager extends EventEmitter {
 
     let promptText = text;
     if (attachments && attachments.length > 0) {
-      const attachNotes = attachments.map(a => `[첨부 파일]\n- ${a.path}`).join('\n');
-      promptText = `${promptText}\n\n${attachNotes}`;
+      const attachNotes = attachments.map(a => {
+        const p = typeof a === 'string' ? a : (a.path || a.destPath || a.url || a.name || '');
+        return `- ${p}`;
+      }).join('\n');
+      promptText = `${promptText}\n\n[첨부 파일]\n${attachNotes}`;
     }
 
     const msg = {

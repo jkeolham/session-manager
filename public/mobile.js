@@ -816,7 +816,10 @@
       if (composer) {
         composer.style.transform = offset > 0 ? `translateY(-${offset}px)` : 'none';
       }
-      scrollToBottom();
+      if (chatContainer) {
+        chatContainer.style.paddingBottom = offset > 0 ? `${offset + 16}px` : '16px';
+      }
+      scrollToBottom(true);
     };
     window.visualViewport.addEventListener('resize', onViewportResize);
     window.visualViewport.addEventListener('scroll', onViewportResize);

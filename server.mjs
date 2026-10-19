@@ -413,8 +413,14 @@ export function createServer(options = {}) {
         const onBridgeEvent = ({ cid: eventCid, data }) => {
           const matchCid = cid || (session && session.startsWith('rc_') ? session.replace('rc_', '') : null);
           if (matchCid && eventCid && (eventCid === matchCid || eventCid.startsWith(matchCid.slice(0, 8)))) {
-            if (data.event === 'turn' || data.event === 'result') {
+            if (data.event === 'turn') {
               sendEvent('turn', data);
+            } else if (data.event === 'result' && data.result && data.result.response) {
+              sendEvent('turn', {
+                role: 'assistant',
+                content: data.result.response,
+                timestamp: new Date().toISOString()
+              });
             }
           }
         };
@@ -643,6 +649,15 @@ export function createServer(options = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = process.env.PORT || 8789;
   const host = process.env.BIND_HOST || '0.0.0.0';
+
+  ['SIGINT', 'SIGTERM'].forEach(sig => {
+    process.on(sig, () => {
+      console.log(`[Server] Received ${sig}, terminating worker processes...`);
+      agentBridge.closeAll();
+      process.exit(0);
+    });
+  });
+
   createServer({ port, bindHost: host }).catch(err => {
     console.error('Failed to start server:', err);
     process.exit(1);

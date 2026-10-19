@@ -65,4 +65,27 @@ test('AgentBridgeManager handles chunked stdout and relay-url emission', () => {
   mgr.closeAll();
 });
 
+test('AgentBridgeManager handles diverse attachment formats safely', () => {
+  const mgr = new AgentBridgeManager();
+  const written = [];
+  const fakeProc = {
+    stdin: { write: (d) => written.push(d) },
+    killed: false
+  };
+  mgr.workers.set('test-cid-att', { proc: fakeProc, lastUsed: 0 });
+
+  mgr.sendPrompt('test-cid-att', 'check attachments', [
+    { destPath: '/tmp/dest.txt' },
+    { url: '/uploads/img.png' },
+    '/simple/path.pdf'
+  ]);
+  const parsed = JSON.parse(written[0]);
+  assert.ok(parsed.message.content.includes('/tmp/dest.txt'));
+  assert.ok(parsed.message.content.includes('/uploads/img.png'));
+  assert.ok(parsed.message.content.includes('/simple/path.pdf'));
+  assert.ok(!parsed.message.content.includes('undefined'));
+  mgr.closeAll();
+});
+
+
 
