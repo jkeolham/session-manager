@@ -95,6 +95,22 @@ export function sendTextToTmux(sessionName, text) {
   }
 }
 
+export function captureTmuxPane(sessionName, lines = 300) {
+  if (!sessionName || typeof sessionName !== 'string' || !/^[a-zA-Z0-9_\-]+$/.test(sessionName)) {
+    return null;
+  }
+  try {
+    const out = execSync(`tmux capture-pane -p -J -S -${lines} -t "${sessionName}" 2>/dev/null`, {
+      encoding: 'utf-8',
+      timeout: 3000,
+      maxBuffer: 5 * 1024 * 1024
+    });
+    return out;
+  } catch (err) {
+    return null;
+  }
+}
+
 function sendJson(res, statusCode, data) {
   const json = JSON.stringify(data);
   res.writeHead(statusCode, {
@@ -133,13 +149,64 @@ export function createServer(options = {}) {
 
       // 1. GET /api/sessions
       if (req.method === 'GET' && pathname === '/api/sessions') {
-        const sessions = await getCategorizedSessions();
+        const raw = await getCategorizedSessions();
+
+        // Antigravity sessions: Prioritize active Remote Control sessions
+        const agyList = [];
+        const seenCids = new Set();
+        const seenNames = new Set();
+
+        if (Array.isArray(raw.remoteControl)) {
+          for (const rc of raw.remoteControl) {
+            const shortCid = (rc.cid || '').slice(0, 4);
+            const sName = `rc_${(rc.cid || '').slice(0, 8)}`;
+            agyList.push({
+              name: sName,
+              cid: rc.cid,
+              title: rc.title || 'AI Session',
+              displayName: `[${shortCid}] ${rc.title || 'AI Session'}`,
+              cmd: 'agy',
+              steps: rc.steps,
+              time_str: rc.time_str,
+              active: true
+            });
+            seenCids.add(rc.cid);
+            seenNames.add(sName);
+          }
+        }
+
+        const otherList = [...(raw.other || [])];
+        if (Array.isArray(raw.agy)) {
+          for (const item of raw.agy) {
+            if (seenNames.has(item.name) || (item.cid && seenCids.has(item.cid))) {
+              continue;
+            }
+            if (item.name && item.name.startsWith('rc_')) {
+              agyList.push({
+                ...item,
+                displayName: item.displayName || item.title || item.name,
+                active: true
+              });
+              seenNames.add(item.name);
+            } else {
+              // Sessions like agy_asset_TAX, agy_jknas_music where cmd === 'bash'
+              // These are inactive shell sessions
+              otherList.push({
+                ...item,
+                displayName: `[Shell] ${item.name}`,
+                title: item.title ? `${item.title} (대기 셸)` : null,
+                active: false
+              });
+            }
+          }
+        }
+
         sendJson(res, 200, {
-          agy: sessions.agy || [],
-          claude: sessions.claude || [],
-          codex: sessions.codex || [],
-          other: sessions.other || [],
-          others: sessions.other || []
+          agy: agyList,
+          claude: raw.claude || [],
+          codex: raw.codex || [],
+          other: otherList,
+          others: otherList
         });
         return;
       }
@@ -156,25 +223,42 @@ export function createServer(options = {}) {
         }
 
         const tPath = resolveTranscriptPath(cid, session);
-        if (!tPath || !fs.existsSync(tPath)) {
+        if (tPath && fs.existsSync(tPath)) {
+          const parsed = parseTranscriptFile(tPath, limit);
+          if (parsed.turns && parsed.turns.length > 0) {
+            sendJson(res, 200, {
+              session,
+              cid,
+              turns: parsed.turns,
+              totalCount: parsed.totalCount,
+              hasEarlier: parsed.hasEarlier
+            });
+            return;
+          }
+        }
+
+        // Live terminal fallback for sessions without structured turns (Claude, Codex, shell)
+        const targetSession = session || (cid ? `rc_${cid.slice(0, 8)}` : null);
+        const termOutput = captureTmuxPane(targetSession);
+        if (termOutput !== null) {
           sendJson(res, 200, {
-            session,
+            session: targetSession,
             cid,
             turns: [],
             totalCount: 0,
             hasEarlier: false,
-            notFound: true
+            terminalOutput: termOutput
           });
           return;
         }
 
-        const parsed = parseTranscriptFile(tPath, limit);
         sendJson(res, 200, {
           session,
           cid,
-          turns: parsed.turns,
-          totalCount: parsed.totalCount,
-          hasEarlier: parsed.hasEarlier
+          turns: [],
+          totalCount: 0,
+          hasEarlier: false,
+          notFound: true
         });
         return;
       }
@@ -211,32 +295,45 @@ export function createServer(options = {}) {
           } catch (e) {}
         }
 
+        // Terminal pane tracking for sessions without transcript file
+        let lastTermData = '';
+        const targetSession = session || (cid ? `rc_${cid.slice(0, 8)}` : null);
+        if (!tPath && targetSession) {
+          lastTermData = captureTmuxPane(targetSession, 150) || '';
+        }
+
         const pollInterval = setInterval(() => {
           if (!tPath) {
             tPath = resolveTranscriptPath(cid, session);
           }
-          if (!tPath || !fs.existsSync(tPath)) return;
+          if (tPath && fs.existsSync(tPath)) {
+            try {
+              const stat = fs.statSync(tPath);
+              if (stat.size > lastSize) {
+                const fd = fs.openSync(tPath, 'r');
+                const buffer = Buffer.alloc(stat.size - lastSize);
+                fs.readSync(fd, buffer, 0, buffer.length, lastSize);
+                fs.closeSync(fd);
+                lastSize = stat.size;
 
-          try {
-            const stat = fs.statSync(tPath);
-            if (stat.size > lastSize) {
-              const fd = fs.openSync(tPath, 'r');
-              const buffer = Buffer.alloc(stat.size - lastSize);
-              fs.readSync(fd, buffer, 0, buffer.length, lastSize);
-              fs.closeSync(fd);
-              lastSize = stat.size;
-
-              const newChunk = buffer.toString('utf-8');
-              const parsed = parseTranscriptString(newChunk);
-              if (parsed && parsed.turns && parsed.turns.length > 0) {
-                for (const turn of parsed.turns) {
-                  sendEvent('turn', turn);
+                const newChunk = buffer.toString('utf-8');
+                const parsed = parseTranscriptString(newChunk);
+                if (parsed && parsed.turns && parsed.turns.length > 0) {
+                  for (const turn of parsed.turns) {
+                    sendEvent('turn', turn);
+                  }
                 }
+              } else if (stat.size < lastSize) {
+                lastSize = stat.size;
               }
-            } else if (stat.size < lastSize) {
-              lastSize = stat.size;
+            } catch (err) {}
+          } else if (targetSession) {
+            const currentTerm = captureTmuxPane(targetSession, 150);
+            if (currentTerm !== null && currentTerm !== lastTermData) {
+              lastTermData = currentTerm;
+              sendEvent('terminal', { session: targetSession, text: currentTerm });
             }
-          } catch (err) {}
+          }
         }, 1000);
 
         req.on('close', () => {

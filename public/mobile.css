@@ -536,3 +536,70 @@ details[open] summary {
   color: var(--text-muted);
   cursor: default;
 }
+
+/* Terminal Console View */
+.terminal-container {
+  display: flex;
+  flex-direction: column;
+  background-color: #0b0e14;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 4px 0 12px 0;
+  width: 100%;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.terminal-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #161b22;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.terminal-tag {
+  color: #58a6ff;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.terminal-session-name {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-refresh-btn {
+  background-color: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.terminal-refresh-btn:active {
+  background-color: var(--accent-hover);
+}
+
+.terminal-screen {
+  padding: 12px;
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #38ef7d;
+  background-color: #0b0e14;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-y: auto;
+  max-height: 70vh;
+}

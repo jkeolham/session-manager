@@ -31,6 +31,8 @@ async function run() {
     assert.strictEqual(resSessions.status, 200, 'GET /api/sessions should return 200');
     const sessions = JSON.parse(resSessions.body);
     assert(Array.isArray(sessions.agy), 'sessions.agy should be an array');
+    assert(sessions.agy.length > 0, 'sessions.agy should have sessions');
+    assert(sessions.agy[0].displayName, 'sessions.agy items should have displayName');
     assert(Array.isArray(sessions.claude), 'sessions.claude should be an array');
     assert(Array.isArray(sessions.codex), 'sessions.codex should be an array');
     assert(Array.isArray(sessions.other || sessions.others), 'sessions.other should be an array');
@@ -38,6 +40,12 @@ async function run() {
     // 2. GET /api/transcript with missing query params -> 400
     const resInvalid = await request('/api/transcript');
     assert.strictEqual(resInvalid.status, 400, 'GET /api/transcript without params should return 400');
+
+    // 2b. GET /api/transcript with terminal session -> terminalOutput
+    const resTerm = await request('/api/transcript?session=shopping_monitoring');
+    assert.strictEqual(resTerm.status, 200);
+    const termData = JSON.parse(resTerm.body);
+    assert(typeof termData.terminalOutput === 'string', 'terminal session should return terminalOutput');
 
     // 3. POST /api/send with missing fields -> 400
     const resSendInvalid = await request('/api/send', {

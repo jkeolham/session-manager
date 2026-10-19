@@ -249,8 +249,10 @@
       chatHistory.innerHTML = '';
       if (data.turns && data.turns.length > 0) {
         data.turns.forEach(turn => appendTurn(turn));
+      } else if (data.terminalOutput) {
+        renderTerminalScreen(data.terminalOutput, sessionName);
       } else {
-        chatHistory.innerHTML = '<div class="empty-state"><p>대화 기록이 없습니다. 메시지를 보내 세션을 시작하세요.</p></div>';
+        chatHistory.innerHTML = '<div class="empty-state"><p>대화 기록 및 터미널 출력이 없습니다.</p></div>';
       }
       scrollToBottom(true);
     } catch (err) {
@@ -260,6 +262,26 @@
 
     // Connect SSE stream
     connectStream(cid, sessionName);
+  }
+
+  function renderTerminalScreen(text, sessionName) {
+    chatHistory.innerHTML = `
+      <div class="terminal-container">
+        <div class="terminal-topbar">
+          <span class="terminal-tag">🖥️ LIVE CONSOLE</span>
+          <span class="terminal-session-name">${escapeHtml(sessionName)}</span>
+          <button class="terminal-refresh-btn" type="button" id="termRefreshBtn">🔄 새로고침</button>
+        </div>
+        <pre class="terminal-screen" id="terminalScreen">${escapeHtml(text || '(터미널 출력이 없습니다)')}</pre>
+      </div>
+    `;
+    const btn = document.getElementById('termRefreshBtn');
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentSession) selectSession(currentSession);
+      });
+    }
   }
 
   function appendTurn(turn) {
@@ -312,13 +334,32 @@
     activeEventSource.addEventListener('turn', (e) => {
       try {
         const turn = JSON.parse(e.data);
-        // Remove empty state notice if present
+        // Remove empty state notice or terminal container if present
         const notice = chatHistory.querySelector('.empty-state');
         if (notice) notice.remove();
+
+        const term = chatHistory.querySelector('.terminal-container');
+        if (term) term.remove();
 
         appendTurn(turn);
       } catch (err) {
         console.error('Failed to parse turn event:', err);
+      }
+    });
+
+    activeEventSource.addEventListener('terminal', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const termScreen = document.getElementById('terminalScreen');
+        if (termScreen && data.text) {
+          termScreen.innerText = data.text;
+          scrollToBottom(true);
+        } else if (!termScreen && data.text) {
+          renderTerminalScreen(data.text, sessionName);
+          scrollToBottom(true);
+        }
+      } catch (err) {
+        console.error('Failed to parse terminal event:', err);
       }
     });
 
@@ -340,15 +381,18 @@
     btnSend.disabled = true;
     composerInput.disabled = true;
 
-    // Optimistic user turn
+    // Optimistic user turn if in chat turn mode
+    const isTerminalActive = !!document.getElementById('terminalScreen');
     const cid = currentSession.cid || '';
     const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
 
-    appendTurn({
-      role: 'user',
-      content: text,
-      timestamp: new Date().toISOString()
-    });
+    if (!isTerminalActive) {
+      appendTurn({
+        role: 'user',
+        content: text,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     composerInput.value = '';
     composerInput.style.height = 'auto';
