@@ -5,10 +5,13 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { AgentBridgeManager } from './agent-bridge.mjs';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+export const agentBridge = new AgentBridgeManager();
 
 const { getCategorizedSessions } = require('./session-discovery.js');
 const { parseTranscriptFile, parseTranscriptString } = require('./transcript-parser.js');
@@ -194,6 +197,15 @@ export function createServer(options = {}) {
     try {
       const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const pathname = urlObj.pathname;
+
+      // 1.0 GET /api/remote-url
+      if (req.method === 'GET' && pathname === '/api/remote-url') {
+        const reqCid = urlObj.searchParams.get('cid');
+        const fullCid = (reqCid && reqCid.length > 10) ? reqCid : findFullCidByPrefix(reqCid);
+        const url = fullCid ? agentBridge.getRelayUrl(fullCid) : null;
+        sendJson(res, 200, { cid: fullCid || reqCid, url: url || null });
+        return;
+      }
 
       // 1. GET /api/sessions
       if (req.method === 'GET' && pathname === '/api/sessions') {
@@ -398,9 +410,28 @@ export function createServer(options = {}) {
           }
         }, 500);
 
+        const onBridgeEvent = ({ cid: eventCid, data }) => {
+          const matchCid = cid || (session && session.startsWith('rc_') ? session.replace('rc_', '') : null);
+          if (matchCid && eventCid && (eventCid === matchCid || eventCid.startsWith(matchCid.slice(0, 8)))) {
+            if (data.event === 'turn' || data.event === 'result') {
+              sendEvent('turn', data);
+            }
+          }
+        };
+        const onRelayUrl = ({ cid: eventCid, url }) => {
+          const matchCid = cid || (session && session.startsWith('rc_') ? session.replace('rc_', '') : null);
+          if (matchCid && eventCid && (eventCid === matchCid || eventCid.startsWith(matchCid.slice(0, 8)))) {
+            sendEvent('relay-url', { cid: eventCid, url });
+          }
+        };
+        agentBridge.on('event', onBridgeEvent);
+        agentBridge.on('relay-url', onRelayUrl);
+
         req.on('close', () => {
           clearInterval(pingInterval);
           clearInterval(pollInterval);
+          agentBridge.off('event', onBridgeEvent);
+          agentBridge.off('relay-url', onRelayUrl);
         });
 
         return;
@@ -476,6 +507,32 @@ export function createServer(options = {}) {
             let text = typeof data.text === 'string' ? data.text.trim() : '';
             const attachments = Array.isArray(data.attachments) ? data.attachments : [];
 
+            if (!targetSession && !data.cid) {
+              sendError(res, 400, 'Missing target session or cid');
+              return;
+            }
+            if (!text && attachments.length === 0) {
+              sendError(res, 400, 'Missing text or attachments');
+              return;
+            }
+
+            const isAgy = Boolean(
+              data.cid ||
+              (targetSession && (targetSession.startsWith('rc_') || targetSession.startsWith('agy_')))
+            );
+
+            if (isAgy) {
+              const rawId = data.cid || (targetSession ? targetSession.replace(/^(rc_|agy_)/, '') : '');
+              const fullCid = (rawId && rawId.length > 10) ? rawId : findFullCidByPrefix(rawId);
+              if (!fullCid) {
+                sendError(res, 400, `Could not resolve conversation ID for session ${targetSession || data.cid}`);
+                return;
+              }
+              agentBridge.sendPrompt(fullCid, text, attachments);
+              sendJson(res, 200, { ok: true, bridge: 'agent-bridge', cid: fullCid, session: targetSession });
+              return;
+            }
+
             if (attachments.length > 0) {
               const attachLines = attachments.map(a => {
                 const p = a.path || a.destPath || a.url || a.name || a;
@@ -485,13 +542,8 @@ export function createServer(options = {}) {
               text += `[첨부 파일]\n${attachLines.join('\n')}`;
             }
 
-            if (!targetSession || !text) {
-              sendError(res, 400, 'Missing target session or text/attachments');
-              return;
-            }
-
             sendTextToTmux(targetSession, text, data.cid);
-            sendJson(res, 200, { ok: true, session: targetSession });
+            sendJson(res, 200, { ok: true, bridge: 'tmux', session: targetSession });
           } catch (err) {
             sendError(res, 400, err.message);
           }
