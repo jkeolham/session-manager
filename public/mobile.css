@@ -1,16 +1,16 @@
 :root {
-  --bg-primary: #121214;
-  --bg-secondary: #18181b;
-  --bg-card: #202025;
-  --bg-card-hover: #27272f;
-  --border-color: #2e2e38;
-  --border-subtle: #24242e;
-  --accent-color: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-user: #3b82f6;
-  --text-primary: #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  --bg-primary: #131314;
+  --bg-secondary: #1e1f20;
+  --bg-card: #282a2c;
+  --bg-card-hover: #333538;
+  --border-color: #313538;
+  --border-subtle: #242628;
+  --accent-color: #7cacf8;
+  --accent-hover: #5a94ed;
+  --accent-user: #1a73e8;
+  --text-primary: #e3e3e3;
+  --text-secondary: #8e918f;
+  --text-muted: #6e7174;
   --header-height: 56px;
   --composer-height: 64px;
   --safe-area-inset-top: env(safe-area-inset-top, 0px);
@@ -74,6 +74,27 @@ body {
 
 .icon-btn:active {
   background-color: var(--bg-card);
+}
+
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: rgba(124, 172, 248, 0.12);
+  border: 1px solid rgba(124, 172, 248, 0.3);
+  color: #7cacf8;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 14px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.header-link:active {
+  background-color: rgba(124, 172, 248, 0.25);
+  border-color: #7cacf8;
 }
 
 #header-info {

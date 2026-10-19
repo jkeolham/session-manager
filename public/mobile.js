@@ -231,6 +231,25 @@
     headerBadge.innerText = (session.type || 'active').toUpperCase();
     headerBadge.className = `badge ${session.type || ''}`;
 
+    // Update Google Web Remote Link
+    const btnGoogleWeb = document.getElementById('btn-google-web');
+    if (btnGoogleWeb) {
+      if (session.cid) {
+        btnGoogleWeb.href = 'https://antigravity.google.com';
+        btnGoogleWeb.style.display = 'inline-flex';
+        fetch(`/api/remote-url?cid=${encodeURIComponent(session.cid)}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d && d.url) {
+              btnGoogleWeb.href = d.url;
+            }
+          })
+          .catch(() => {});
+      } else {
+        btnGoogleWeb.style.display = 'none';
+      }
+    }
+
     // Show Chat, Hide Empty State
     emptyState.style.display = 'none';
     chatHistory.innerHTML = '<div class="loading-spinner">대화 내역을 불러오는 중...</div>';
@@ -535,6 +554,17 @@
       } catch (err) {
         console.error('Failed to parse terminal event:', err);
       }
+    });
+
+    activeEventSource.addEventListener('relay-url', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const btnGoogleWeb = document.getElementById('btn-google-web');
+        if (btnGoogleWeb && data && data.url) {
+          btnGoogleWeb.href = data.url;
+          btnGoogleWeb.style.display = 'inline-flex';
+        }
+      } catch (err) {}
     });
 
     activeEventSource.addEventListener('ping', () => {
