@@ -22,8 +22,34 @@ function getTmuxSessionName(cid) {
   return `rc_${(cid || '').slice(0, 8)}`;
 }
 
-function sendTextToTmux(sessionName, text) {
+async function sendTextToTmux(sessionName, text, cid = null) {
   if (!sessionName || !text) return false;
+
+  // 1. If it's an Antigravity/RemoteControl session, route via local session-manager API Bridge for 100% cloud sync
+  const isAgy = Boolean(
+    (cid && cid.length > 10) ||
+    sessionName.startsWith('rc_') ||
+    sessionName.startsWith('agy_')
+  );
+
+  if (isAgy) {
+    try {
+      const payload = { session: sessionName, text };
+      if (cid) payload.cid = cid;
+      const res = await fetch('http://127.0.0.1:8789/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[SessionManager] API bridge send failed, falling back to tmux:`, e.message);
+    }
+  }
+
+  // 2. Fallback to legacy tmux paste-buffer for Claude, Codex, shell sessions
   const tmpFile = path.join(os.tmpdir(), `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.txt`);
   try {
     fs.writeFileSync(tmpFile, text, 'utf-8');
@@ -598,36 +624,41 @@ class PromptComposerViewProvider {
 
     let targetSession = null;
     let targetLabel = null;
+    let targetCid = null;
 
     if (!targetVal || targetVal === '__active__') {
       if (this._currentSessionName) {
         targetSession = this._currentSessionName;
+        targetCid = this._currentCid || null;
         targetLabel = this._currentCid ? `[${this._currentCid.slice(0, 4)}]` : targetSession;
       } else {
         const res = resolveTmuxSessionFromTerminal(vscode.window.activeTerminal, this.treeDataProvider.cachedData);
         if (res) {
           targetSession = res.sessionName;
           targetLabel = res.label;
+          targetCid = res.cid || null;
         } else {
           const rc = this.treeDataProvider.cachedData?.remoteControl;
           const agy = this.treeDataProvider.cachedData?.agy;
           if (rc && rc.length > 0) {
+            targetCid = rc[0].cid;
             targetSession = getTmuxSessionName(rc[0].cid);
             targetLabel = `[${rc[0].cid.slice(0, 4)}] ${rc[0].title || rc[0].cid}`;
             attachRemoteControl(rc[0].cid, rc[0].title);
           } else if (agy && agy.length > 0) {
             targetSession = agy[0].name;
             targetLabel = agy[0].name;
+            targetCid = agy[0].cid || null;
             attachToSession(targetSession);
           }
         }
       }
     } else if (targetVal.startsWith('rc:')) {
-      const cid = targetVal.slice(3);
-      targetSession = getTmuxSessionName(cid);
-      const match = (this.treeDataProvider.cachedData?.remoteControl || []).find(s => s.cid === cid);
-      targetLabel = match ? `[${cid.slice(0, 4)}] ${match.title}` : targetSession;
-      attachRemoteControl(cid, match ? match.title : null);
+      targetCid = targetVal.slice(3);
+      targetSession = getTmuxSessionName(targetCid);
+      const match = (this.treeDataProvider.cachedData?.remoteControl || []).find(s => s.cid === targetCid);
+      targetLabel = match ? `[${targetCid.slice(0, 4)}] ${match.title}` : targetSession;
+      attachRemoteControl(targetCid, match ? match.title : null);
     } else if (targetVal.startsWith('tmux:')) {
       targetSession = targetVal.slice(5);
       targetLabel = targetSession;
@@ -639,7 +670,7 @@ class PromptComposerViewProvider {
       return;
     }
 
-    const success = sendTextToTmux(targetSession, text);
+    const success = await sendTextToTmux(targetSession, text, targetCid);
     if (success) {
       vscode.window.setStatusBarMessage(`$(check) 프롬프트 전송됨: ${targetLabel}`, 3000);
     }
@@ -762,15 +793,18 @@ class PromptComposerViewProvider {
 async function handleQuickPrompt(arg, treeDataProvider) {
   let targetSession = null;
   let targetTitle = null;
+  let targetCid = null;
 
   if (arg && arg.session) {
     if (arg.contextValue === 'remoteControlItem') {
+      targetCid = arg.session.cid;
       targetSession = getTmuxSessionName(arg.session.cid);
       targetTitle = `[${arg.session.cid.slice(0, 4)}] ${arg.session.title}`;
       attachRemoteControl(arg.session.cid, arg.session.title);
     } else {
       targetSession = arg.session.name;
       targetTitle = targetSession;
+      targetCid = arg.session.cid || null;
       attachToSession(targetSession);
     }
   } else if (typeof arg === 'string') {
@@ -782,6 +816,7 @@ async function handleQuickPrompt(arg, treeDataProvider) {
     if (res) {
       targetSession = res.sessionName;
       targetTitle = res.label;
+      targetCid = res.cid || null;
     } else {
       // Show quickpick
       const items = [];
@@ -827,6 +862,7 @@ async function handleQuickPrompt(arg, treeDataProvider) {
 
       targetSession = picked.sessionName;
       targetTitle = picked.label.replace(/^\$\([^)]+\)\s*/, '');
+      targetCid = picked.cid || null;
       if (picked.cid) {
         attachRemoteControl(picked.cid, picked.title);
       } else {
@@ -844,7 +880,7 @@ async function handleQuickPrompt(arg, treeDataProvider) {
   });
 
   if (input && input.trim()) {
-    const ok = sendTextToTmux(targetSession, input.trim());
+    const ok = await sendTextToTmux(targetSession, input.trim(), targetCid);
     if (ok) {
       vscode.window.setStatusBarMessage(`$(check) 프롬프트 전송됨: ${targetTitle}`, 3000);
     }

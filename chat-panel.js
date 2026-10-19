@@ -222,8 +222,9 @@ class SessionChatPanelManager {
           });
         }
       } else if (data.command === 'sendPrompt') {
+        const cid = (record.session && record.session.cid) ? record.session.cid : null;
         if (this.sendTextToTmux) {
-          this.sendTextToTmux(record.sessionName, data.text);
+          this.sendTextToTmux(record.sessionName, data.text, cid);
         }
         // Rapid response checks after prompt
         setTimeout(() => sendTurnsToWebview(false), 500);
