@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#121214">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>N100 Session Manager</title>
+  <link rel="stylesheet" href="/mobile.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Top Header -->
+    <header id="header">
+      <button id="btn-drawer-toggle" class="icon-btn" aria-label="세션 목록 열기">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+      <div id="header-info">
+        <h1 id="current-session-title">세션을 선택하세요</h1>
+        <div id="current-session-meta">
+          <span id="current-session-badge" class="badge">Offline</span>
+          <span id="current-session-subtitle"></span>
+        </div>
+      </div>
+      <div id="header-actions">
+        <button id="btn-refresh" class="icon-btn" aria-label="새로고침">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Slide-out Drawer for Sessions -->
+    <div id="drawer-backdrop"></div>
+    <aside id="drawer">
+      <div id="drawer-header">
+        <div class="drawer-title-group">
+          <h2>N100 세션 목록</h2>
+          <span id="session-count-badge" class="count-badge">0</span>
+        </div>
+        <button id="btn-drawer-close" class="icon-btn" aria-label="닫기">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div id="drawer-search">
+        <input type="text" id="session-search" placeholder="세션 검색..." autocomplete="off">
+      </div>
+      <div id="drawer-content">
+        <div id="session-list">
+          <div class="loading-spinner">세션 불러오는 중...</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Chat Container -->
+    <main id="chat-container">
+      <div id="empty-state">
+        <div class="empty-icon">💬</div>
+        <h3>선택된 세션이 없습니다</h3>
+        <p>상단 메뉴(☰)를 눌러 대화할 세션을 선택하세요.</p>
+        <button id="btn-open-drawer-action" class="primary-btn">세션 목록 열기</button>
+      </div>
+      <div id="chat-history"></div>
+    </main>
+
+    <!-- Scroll to bottom button -->
+    <button id="btn-scroll-bottom" class="floating-btn" aria-label="맨 아래로">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </button>
+
+    <!-- Bottom Composer -->
+    <footer id="composer">
+      <div class="composer-box">
+        <textarea id="composer-input" rows="1" placeholder="메시지 입력... (Enter=전송, Shift+Enter=줄바꿈)" autocomplete="off"></textarea>
+        <button id="btn-send" class="send-btn" aria-label="전송" disabled>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/mobile.js"></script>
+</body>
+</html>
