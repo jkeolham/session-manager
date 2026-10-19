@@ -753,15 +753,23 @@
     renderSessionList(e.target.value);
   });
 
+  let isComposing = false;
+  composerInput.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+  composerInput.addEventListener('compositionend', () => {
+    isComposing = false;
+  });
+
   composerInput.addEventListener('input', () => {
-    // Autogrow
+    // Autogrow up to 160px
     composerInput.style.height = 'auto';
-    composerInput.style.height = `${Math.min(composerInput.scrollHeight, 120)}px`;
+    composerInput.style.height = `${Math.min(composerInput.scrollHeight, 160)}px`;
     updateSendButtonState();
   });
 
   composerInput.addEventListener('keydown', (e) => {
-    if (e.isComposing || e.keyCode === 229) return;
+    if (isComposing || e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -769,6 +777,20 @@
   });
 
   btnSend.addEventListener('click', sendMessage);
+
+  // Soft keyboard positioning with visualViewport API
+  if (window.visualViewport) {
+    const onViewportResize = () => {
+      const offset = Math.max(0, window.innerHeight - window.visualViewport.height);
+      const composer = document.getElementById('composer');
+      if (composer) {
+        composer.style.transform = offset > 0 ? `translateY(-${offset}px)` : 'none';
+      }
+      scrollToBottom();
+    };
+    window.visualViewport.addEventListener('resize', onViewportResize);
+    window.visualViewport.addEventListener('scroll', onViewportResize);
+  }
 
   chatContainer.addEventListener('scroll', () => {
     const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
