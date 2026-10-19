@@ -470,6 +470,12 @@
         const term = chatHistory.querySelector('.terminal-container');
         if (term) term.remove();
 
+        // Remove typing indicator if present
+        const typingEl = chatHistory.querySelector('.typing-msg');
+        if (typingEl) typingEl.remove();
+
+        const lastMsg = chatHistory.lastElementChild;
+
         // 1. Deduplicate user turn if already rendered optimistically
         if (turn.role === 'user') {
           const incomingText = (turn.content || '').trim();
@@ -664,6 +670,13 @@
         })),
         timestamp: new Date().toISOString()
       });
+
+      // Show typing indicator
+      const typingEl = document.createElement('div');
+      typingEl.className = 'message assistant typing-msg';
+      typingEl.innerHTML = `<div class="bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+      chatHistory.appendChild(typingEl);
+      scrollToBottom();
     }
 
     composerInput.value = '';
@@ -771,17 +784,16 @@
     scrollToBottom(true);
   });
 
-  // Mobile virtual keyboard handling via visualViewport
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', () => {
-      const offset = window.innerHeight - window.visualViewport.height;
-      const composerEl = document.getElementById('composer');
-      if (composerEl) {
-        composerEl.style.transform = offset > 0 ? `translateY(-${offset}px)` : 'none';
-        scrollToBottom(true);
+  // Auto-reconnect SSE on tab visibility recovery
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentSession) {
+      if (!activeEventSource || activeEventSource.readyState === EventSource.CLOSED) {
+        const cid = currentSession.cid || '';
+        const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
+        connectStream(cid, sessionName);
       }
-    });
-  }
+    }
+  });
 
   // --- Initial Load ---
   fetchSessions().then(() => {

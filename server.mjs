@@ -298,6 +298,7 @@ export function createServer(options = {}) {
         // File watcher for transcript.jsonl
         let tPath = resolveTranscriptPath(cid, session);
         let lastSize = 0;
+        let lineRemainder = '';
         if (tPath && fs.existsSync(tPath)) {
           try {
             lastSize = fs.statSync(tPath).size;
@@ -314,6 +315,11 @@ export function createServer(options = {}) {
         const pollInterval = setInterval(() => {
           if (!tPath) {
             tPath = resolveTranscriptPath(cid, session);
+            if (tPath && fs.existsSync(tPath)) {
+              try {
+                lastSize = fs.statSync(tPath).size;
+              } catch (e) {}
+            }
           }
           if (tPath && fs.existsSync(tPath)) {
             try {
@@ -325,15 +331,23 @@ export function createServer(options = {}) {
                 fs.closeSync(fd);
                 lastSize = stat.size;
 
-                const newChunk = buffer.toString('utf-8');
-                const parsed = parseTranscriptString(newChunk);
-                if (parsed && parsed.turns && parsed.turns.length > 0) {
-                  for (const turn of parsed.turns) {
-                    sendEvent('turn', turn);
+                const newChunk = lineRemainder + buffer.toString('utf-8');
+                const lastNewline = newChunk.lastIndexOf('\n');
+                if (lastNewline !== -1) {
+                  const completeLines = newChunk.slice(0, lastNewline + 1);
+                  lineRemainder = newChunk.slice(lastNewline + 1);
+                  const parsed = parseTranscriptString(completeLines);
+                  if (parsed && parsed.turns && parsed.turns.length > 0) {
+                    for (const turn of parsed.turns) {
+                      sendEvent('turn', turn);
+                    }
                   }
+                } else {
+                  lineRemainder = newChunk;
                 }
               } else if (stat.size < lastSize) {
                 lastSize = stat.size;
+                lineRemainder = '';
               }
             } catch (err) {}
           } else if (targetSession) {
@@ -343,7 +357,7 @@ export function createServer(options = {}) {
               sendEvent('terminal', { session: targetSession, text: currentTerm });
             }
           }
-        }, 1000);
+        }, 500);
 
         req.on('close', () => {
           clearInterval(pingInterval);
