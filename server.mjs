@@ -67,7 +67,28 @@ export function resolveTranscriptPath(cid, sessionName) {
   return null;
 }
 
-export function sendTextToTmux(sessionName, text) {
+export function findFullCidByPrefix(prefix) {
+  if (!prefix) return null;
+  const home = process.env.HOME || '/home/ttolmany';
+  const brainDirs = [
+    path.join(home, '.gemini/antigravity-cli/brain'),
+    path.join(home, '.gemini/antigravity-ide/brain')
+  ];
+  for (const bDir of brainDirs) {
+    if (!fs.existsSync(bDir)) continue;
+    try {
+      const entries = fs.readdirSync(bDir);
+      for (const entry of entries) {
+        if (entry.startsWith(prefix)) {
+          return entry;
+        }
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+export function sendTextToTmux(sessionName, text, cid = null) {
   if (!sessionName || typeof text !== 'string' || !text.trim()) {
     throw new Error('Missing sessionName or text');
   }
@@ -77,6 +98,24 @@ export function sendTextToTmux(sessionName, text) {
   }
   if (text.length > 65536) {
     throw new Error('Text exceeds maximum allowed length of 64KB');
+  }
+
+  // Ensure tmux session exists; auto-spawn for rc_* if missing
+  try {
+    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+  } catch (e) {
+    if (sessionName.startsWith('rc_')) {
+      const fullCid = (cid && cid.length > 10) ? cid : findFullCidByPrefix(sessionName.replace('rc_', ''));
+      if (fullCid) {
+        const workDir = path.join(process.env.HOME || '/home/ttolmany', 'gdrive/work/SecondBrain');
+        execSync(`tmux new-session -d -s "${sessionName}" -c "${workDir}" "agy --conversation=${fullCid}"`);
+        execSync(`sleep 1.5`);
+      } else {
+        throw new Error(`tmux session ${sessionName} not found and cannot auto-spawn without CID`);
+      }
+    } else {
+      throw new Error(`tmux session ${sessionName} not found`);
+    }
   }
 
   const tmpFile = path.join(os.tmpdir(), `prompt_web_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.txt`);
@@ -451,7 +490,7 @@ export function createServer(options = {}) {
               return;
             }
 
-            sendTextToTmux(targetSession, text);
+            sendTextToTmux(targetSession, text, data.cid);
             sendJson(res, 200, { ok: true, session: targetSession });
           } catch (err) {
             sendError(res, 400, err.message);
