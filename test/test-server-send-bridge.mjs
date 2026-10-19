@@ -1,42 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { createServer } from '../server.mjs';
 
-test('Server initializes with agentBridge and provides /api/remote-url', async () => {
+const require = createRequire(import.meta.url);
+// Same module instance server.mjs uses — patched so tests never reach the real
+// daemon bridge (an unmocked run injects a turn into a live conversation).
+const daemonBridge = require('../daemon-bridge.js');
+
+test('/api/send routes Antigravity conversations through the daemon bridge only', async () => {
   const port = 8795;
   const app = await createServer({ port, bindHost: '127.0.0.1' });
+  const original = daemonBridge.sendPrompt;
 
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/remote-url?cid=test-cid`);
     assert.strictEqual(res.status, 200);
-    const data = await res.json();
-    assert.strictEqual(typeof data, 'object');
-    assert.strictEqual('url' in data, true);
+    assert.strictEqual('url' in (await res.json()), true);
 
-    // Test POST /api/send with mock agentBridge
-    const { agentBridge } = await import('../server.mjs');
-    let promptSent = null;
-    agentBridge.sendPrompt = (cid, text, attachments) => {
-      promptSent = { cid, text, attachments };
-      return true;
-    };
+    let sent = null;
+    daemonBridge.sendPrompt = async (cid, text) => { sent = { cid, text }; return {}; };
 
-    const postRes = await fetch(`http://127.0.0.1:${port}/api/send`, {
+    const cid = '11111111-2222-3333-4444-555555555555';
+    const ok = await fetch(`http://127.0.0.1:${port}/api/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cid: '3e733bed-4c4e-41ae-9a86-c5d8812a4af0',
-        text: 'hello bridge test'
-      })
+      body: JSON.stringify({ cid, text: 'mocked bridge test' })
     });
-    assert.strictEqual(postRes.status, 200);
-    const postData = await postRes.json();
-    assert.strictEqual(postData.ok, true);
-    assert.strictEqual(postData.bridge, 'agent-bridge');
-    assert.strictEqual(promptSent?.cid, '3e733bed-4c4e-41ae-9a86-c5d8812a4af0');
-    assert.strictEqual(promptSent?.text, 'hello bridge test');
+    assert.strictEqual(ok.status, 200);
+    const data = await ok.json();
+    assert.strictEqual(data.bridge, 'daemon');
+    assert.deepStrictEqual(sent, { cid, text: 'mocked bridge test' });
+
+    // Bridge down: report it, never fall back to a tmux TUI (that splits the conversation).
+    daemonBridge.sendPrompt = async () => { throw new Error('bridge not running'); };
+    const down = await fetch(`http://127.0.0.1:${port}/api/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cid, text: 'should fail' })
+    });
+    assert.strictEqual(down.status, 503);
+    assert.match((await down.json()).error, /bridge not running/);
   } finally {
+    daemonBridge.sendPrompt = original;
     await new Promise(resolve => app.close(resolve));
   }
 });
-

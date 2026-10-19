@@ -5,16 +5,14 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { AgentBridgeManager } from './agent-bridge.mjs';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const agentBridge = new AgentBridgeManager();
-
 const { getCategorizedSessions } = require('./session-discovery.js');
 const { parseTranscriptFile, parseTranscriptString } = require('./transcript-parser.js');
+const daemonBridge = require('./daemon-bridge.js');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -103,22 +101,12 @@ export function sendTextToTmux(sessionName, text, cid = null) {
     throw new Error('Text exceeds maximum allowed length of 64KB');
   }
 
-  // Ensure tmux session exists; auto-spawn for rc_* if missing
+  // Antigravity conversations are never typed into a TUI (the daemon owns them);
+  // only existing Claude/Codex/shell tmux sessions get here.
   try {
     execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
   } catch (e) {
-    if (sessionName.startsWith('rc_')) {
-      const fullCid = (cid && cid.length > 10) ? cid : findFullCidByPrefix(sessionName.replace('rc_', ''));
-      if (fullCid) {
-        const workDir = path.join(process.env.HOME || '/home/ttolmany', 'gdrive/work/SecondBrain');
-        execSync(`tmux new-session -d -s "${sessionName}" -c "${workDir}" "agy --conversation=${fullCid}"`);
-        execSync(`sleep 1.5`);
-      } else {
-        throw new Error(`tmux session ${sessionName} not found and cannot auto-spawn without CID`);
-      }
-    } else {
-      throw new Error(`tmux session ${sessionName} not found`);
-    }
+    throw new Error(`tmux session ${sessionName} not found`);
   }
 
   const tmpFile = path.join(os.tmpdir(), `prompt_web_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.txt`);
@@ -140,6 +128,23 @@ export function sendTextToTmux(sessionName, text, cid = null) {
   } finally {
     try { fs.unlinkSync(tmpFile); } catch (e) {}
   }
+}
+
+// The dashboard's page for a conversation hosted by the remote-control daemon.
+// The path carries the CLI version, so read it once from `agy --version`.
+let agyVersion = null;
+export function dashboardUrlForConversation(cid) {
+  if (!cid) return null;
+  if (agyVersion === null) {
+    try {
+      agyVersion = execSync('agy --version', { encoding: 'utf-8', timeout: 5000 }).trim().split(/\s+/).pop();
+    } catch (e) {
+      agyVersion = '';
+    }
+  }
+  return agyVersion
+    ? `https://antigravity.static.usercontent.goog/web/cli-${agyVersion}/c/${cid}`
+    : 'https://antigravity.google.com';
 }
 
 export function captureTmuxPane(sessionName, lines = 300) {
@@ -202,8 +207,8 @@ export function createServer(options = {}) {
       if (req.method === 'GET' && pathname === '/api/remote-url') {
         const reqCid = urlObj.searchParams.get('cid');
         const fullCid = (reqCid && reqCid.length > 10) ? reqCid : findFullCidByPrefix(reqCid);
-        const url = fullCid ? agentBridge.getRelayUrl(fullCid) : null;
-        sendJson(res, 200, { cid: fullCid || reqCid, url: url || null });
+        const url = dashboardUrlForConversation(fullCid);
+        sendJson(res, 200, { cid: fullCid || reqCid, url });
         return;
       }
 
@@ -410,34 +415,9 @@ export function createServer(options = {}) {
           }
         }, 500);
 
-        const onBridgeEvent = ({ cid: eventCid, data }) => {
-          const matchCid = cid || (session && session.startsWith('rc_') ? session.replace('rc_', '') : null);
-          if (matchCid && eventCid && (eventCid === matchCid || eventCid.startsWith(matchCid.slice(0, 8)))) {
-            if (data.event === 'turn') {
-              sendEvent('turn', data);
-            } else if (data.event === 'result' && data.result && data.result.response) {
-              sendEvent('turn', {
-                role: 'assistant',
-                content: data.result.response,
-                timestamp: new Date().toISOString()
-              });
-            }
-          }
-        };
-        const onRelayUrl = ({ cid: eventCid, url }) => {
-          const matchCid = cid || (session && session.startsWith('rc_') ? session.replace('rc_', '') : null);
-          if (matchCid && eventCid && (eventCid === matchCid || eventCid.startsWith(matchCid.slice(0, 8)))) {
-            sendEvent('relay-url', { cid: eventCid, url });
-          }
-        };
-        agentBridge.on('event', onBridgeEvent);
-        agentBridge.on('relay-url', onRelayUrl);
-
         req.on('close', () => {
           clearInterval(pingInterval);
           clearInterval(pollInterval);
-          agentBridge.off('event', onBridgeEvent);
-          agentBridge.off('relay-url', onRelayUrl);
         });
 
         return;
@@ -506,7 +486,7 @@ export function createServer(options = {}) {
             req.destroy();
           }
         });
-        req.on('end', () => {
+        req.on('end', async () => {
           try {
             const data = JSON.parse(body || '{}');
             const targetSession = data.session || (data.cid ? `rc_${data.cid.slice(0, 8)}` : null);
@@ -522,23 +502,6 @@ export function createServer(options = {}) {
               return;
             }
 
-            const isAgy = Boolean(
-              data.cid ||
-              (targetSession && (targetSession.startsWith('rc_') || targetSession.startsWith('agy_')))
-            );
-
-            if (isAgy) {
-              const rawId = data.cid || (targetSession ? targetSession.replace(/^(rc_|agy_)/, '') : '');
-              const fullCid = (rawId && rawId.length > 10) ? rawId : findFullCidByPrefix(rawId);
-              if (!fullCid) {
-                sendError(res, 400, `Could not resolve conversation ID for session ${targetSession || data.cid}`);
-                return;
-              }
-              agentBridge.sendPrompt(fullCid, text, attachments);
-              sendJson(res, 200, { ok: true, bridge: 'agent-bridge', cid: fullCid, session: targetSession });
-              return;
-            }
-
             if (attachments.length > 0) {
               const attachLines = attachments.map(a => {
                 const p = a.path || a.destPath || a.url || a.name || a;
@@ -548,10 +511,62 @@ export function createServer(options = {}) {
               text += `[첨부 파일]\n${attachLines.join('\n')}`;
             }
 
-            sendTextToTmux(targetSession, text, data.cid);
-            sendJson(res, 200, { ok: true, bridge: 'tmux', session: targetSession });
+            const rawId = data.cid || (targetSession && (targetSession.startsWith('rc_') || targetSession.startsWith('agy_'))
+              ? targetSession.replace(/^(rc_|agy_)/, '')
+              : '');
+            const fullCid = (rawId && rawId.length > 10) ? rawId : findFullCidByPrefix(rawId);
+            const resolvedSession = targetSession || (fullCid ? `rc_${fullCid.slice(0, 8)}` : null);
+
+            if (!resolvedSession) {
+              sendError(res, 400, `Could not resolve target session`);
+              return;
+            }
+
+            // Antigravity conversations run inside the remote-control daemon — the
+            // agent instance the dashboard drives — so they go only through the
+            // daemon bridge. Typing into a tmux TUI of the same conversation would
+            // start a second copy of it that the dashboard never sees.
+            const cid = fullCid || data.cid;
+            if (cid && /^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(cid)) {
+              try {
+                await daemonBridge.sendPrompt(cid, text);
+                sendJson(res, 200, { ok: true, bridge: 'daemon', session: resolvedSession, cid });
+              } catch (err) {
+                sendError(res, 503, err.message);
+              }
+              return;
+            }
+
+            // Claude Code, Codex and plain shells still live in tmux.
+
+            sendTextToTmux(resolvedSession, text, cid);
+            sendJson(res, 200, { ok: true, bridge: 'tmux', session: resolvedSession, cid });
           } catch (err) {
             sendError(res, 400, err.message);
+          }
+        });
+        return;
+      }
+
+      // 5.1 POST /api/new — start a new Antigravity conversation inside the daemon
+      if (req.method === 'POST' && pathname === '/api/new') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          if (body.length > 1024 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            const text = typeof data.text === 'string' ? data.text.trim() : '';
+            if (!text) {
+              sendError(res, 400, 'Missing text');
+              return;
+            }
+            const result = await daemonBridge.newConversation(text, data.title, data.model);
+            sendJson(res, 200, { ok: true, bridge: 'daemon', result });
+          } catch (err) {
+            sendError(res, 503, err.message);
           }
         });
         return;
@@ -649,14 +664,6 @@ export function createServer(options = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = process.env.PORT || 8789;
   const host = process.env.BIND_HOST || '0.0.0.0';
-
-  ['SIGINT', 'SIGTERM'].forEach(sig => {
-    process.on(sig, () => {
-      console.log(`[Server] Received ${sig}, terminating worker processes...`);
-      agentBridge.closeAll();
-      process.exit(0);
-    });
-  });
 
   createServer({ port, bindHost: host }).catch(err => {
     console.error('Failed to start server:', err);

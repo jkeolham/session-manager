@@ -4,3 +4,5 @@ node_modules/
 .vscode-test/
 uploads/
 *.vsix
+bridge/data/
+__pycache__/

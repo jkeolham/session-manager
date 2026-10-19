@@ -33,6 +33,7 @@ async function sendTextToTmux(sessionName, text, cid = null) {
   );
 
   if (isAgy) {
+    const daemonOwned = Boolean(cid && /^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(cid));
     try {
       const payload = { session: sessionName, text };
       if (cid) payload.cid = cid;
@@ -44,9 +45,20 @@ async function sendTextToTmux(sessionName, text, cid = null) {
       if (res.ok) {
         return true;
       }
+      if (daemonOwned) {
+        const body = await res.json().catch(() => ({}));
+        vscode.window.showErrorMessage(`Prompt not sent: ${body.error || res.status}`);
+        return false;
+      }
     } catch (e) {
+      if (daemonOwned) {
+        vscode.window.showErrorMessage(`Prompt not sent — session manager (:8789) unreachable: ${e.message}`);
+        return false;
+      }
       console.warn(`[SessionManager] API bridge send failed, falling back to tmux:`, e.message);
     }
+    // Daemon-owned conversations never fall back to tmux: typing into a TUI of
+    // the same conversation starts a second copy the dashboard never sees.
   }
 
   // 2. Fallback to legacy tmux paste-buffer for Claude, Codex, shell sessions
@@ -338,50 +350,16 @@ function attachToSession(sessionName, location) {
   return terminal;
 }
 
-function attachRemoteControl(cid, title, location) {
+// Antigravity conversations live in the remote-control daemon, so "opening" one
+// shows the chat panel (transcript + send via the daemon bridge) instead of
+// starting an `agy --conversation` TUI, which would run a second copy of it.
+function attachRemoteControl(cid, title) {
   if (!cid) return;
-  const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
-  const existing = vscode.window.terminals.find(t => t.name === terminalName);
-  if (existing) {
-    existing.show();
-    return existing;
-  }
-
-  const tmuxSessionName = getTmuxSessionName(cid);
-  const options = {
-    name: terminalName,
-    shellPath: 'tmux',
-    shellArgs: ['new-session', '-A', '-s', tmuxSessionName, `agy --conversation=${cid}`]
-  };
-  if (location) {
-    options.location = location;
-  }
-  const terminal = vscode.window.createTerminal(options);
-  terminal.show();
-  return terminal;
+  vscode.commands.executeCommand('sessionManager.openSessionPanel', { cid, title, name: getTmuxSessionName(cid) });
 }
 
 function reloadRemoteControl(cid, title) {
-  if (!cid) return;
-  const terminalName = `AGY: ${title || cid.slice(0, 8)}`;
-  const existing = vscode.window.terminals.find(t => t.name === terminalName);
-  if (existing) {
-    existing.dispose();
-  }
-
-  const tmuxSessionName = getTmuxSessionName(cid);
-
-  try {
-    execSync(`tmux kill-session -t "${tmuxSessionName}" 2>/dev/null || true`);
-  } catch (e) {}
-
-  const terminal = vscode.window.createTerminal({
-    name: terminalName,
-    shellPath: 'tmux',
-    shellArgs: ['new-session', '-A', '-s', tmuxSessionName, `agy --conversation=${cid}`]
-  });
-  terminal.show();
-  vscode.window.showInformationMessage(`Reloaded session "${title || cid.slice(0, 8)}" with latest turns.`);
+  attachRemoteControl(cid, title);
 }
 
 async function deleteRemoteControl(cid, title, treeDataProvider) {
@@ -968,26 +946,36 @@ function activate(context) {
     treeDataProvider.refresh();
   });
 
+  // New conversations are created inside the remote-control daemon, so they
+  // show up on antigravity.google.com and in this manager at once.
   const newAgyCmd = vscode.commands.registerCommand('sessionManager.newAgy', async () => {
-    const input = await vscode.window.showInputBox({
-      prompt: 'Enter name for new AGY session (e.g. music_tagger, investment_review)',
-      placeHolder: 'session_name'
+    const title = await vscode.window.showInputBox({
+      prompt: 'Title for the new Antigravity conversation (optional)',
+      placeHolder: 'e.g. music tagger'
     });
-    if (!input) return;
+    if (title === undefined) return;
+    const text = await vscode.window.showInputBox({
+      prompt: 'First message to the agent',
+      placeHolder: 'What should the agent work on?'
+    });
+    if (!text) return;
 
-    const safeName = input.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sessionName = `agy_${safeName}`;
-
-    exec(`tmux new-session -d -s "${sessionName}" "agy"`, (err) => {
-      if (err) {
-        vscode.window.showErrorMessage(`Failed to create tmux session: ${err.message}`);
+    try {
+      const res = await fetch('http://127.0.0.1:8789/api/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, title: title.trim() || undefined })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        vscode.window.showErrorMessage(`Could not create conversation: ${body.error || res.status}`);
         return;
       }
-      treeDataProvider.refresh();
-      setTimeout(() => {
-        attachToSession(sessionName);
-      }, 500);
-    });
+      vscode.window.showInformationMessage('Conversation created in the Antigravity daemon.');
+      setTimeout(() => treeDataProvider.refresh(), 1500);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Session manager (:8789) unreachable: ${e.message}`);
+    }
   });
 
   const killCmd = vscode.commands.registerCommand('sessionManager.kill', async (arg) => {
