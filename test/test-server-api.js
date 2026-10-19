@@ -55,6 +55,29 @@ async function run() {
     });
     assert.strictEqual(resSendInvalid.status, 400, 'POST /api/send without fields should return 400');
 
+    // 4. POST /api/upload
+    const resUpload = await request('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [{ name: 'test.txt', type: 'text/plain', data: Buffer.from('hello attachment').toString('base64') }]
+      })
+    });
+    assert.strictEqual(resUpload.status, 200, 'POST /api/upload should return 200');
+    const uploadData = JSON.parse(resUpload.body);
+    assert(uploadData.ok && uploadData.files.length === 1);
+    assert(uploadData.files[0].url.startsWith('/uploads/'));
+
+    // 5. GET /uploads/<safeName>
+    const resUploadedFile = await request(uploadData.files[0].url);
+    assert.strictEqual(resUploadedFile.status, 200);
+    assert.strictEqual(resUploadedFile.body, 'hello attachment');
+
+    // 6. Check static asset Cache-Control is no-cache, no-store
+    const resJs = await request('/mobile.js');
+    assert.strictEqual(resJs.status, 200);
+    assert(resJs.headers['cache-control'].includes('no-cache'), 'Static files should disable caching');
+
     console.log('✅ test-server-api passed!');
   } finally {
     server.close();

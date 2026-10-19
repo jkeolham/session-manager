@@ -21,6 +21,11 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
   '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8'
 };
@@ -130,6 +135,10 @@ export function createServer(options = {}) {
   const port = Number(options.port || process.env.PORT || 8789);
   const host = options.bindHost || process.env.BIND_HOST || '0.0.0.0';
   const publicDir = path.join(__dirname, 'public');
+  const uploadsDir = path.join(__dirname, 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
 
   const server = http.createServer(async (req, res) => {
     // Enable CORS for development/mobile flexibility
@@ -344,12 +353,66 @@ export function createServer(options = {}) {
         return;
       }
 
-      // 4. POST /api/send
+      // 4. POST /api/upload
+      if (req.method === 'POST' && pathname === '/api/upload') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          if (body.length > 30 * 1024 * 1024) { // 30MB limit
+            req.destroy();
+          }
+        });
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            const files = Array.isArray(data.files) ? data.files : [];
+            if (files.length === 0) {
+              sendError(res, 400, 'No files provided');
+              return;
+            }
+
+            const savedFiles = [];
+            for (const f of files) {
+              const origName = f.name || 'attachment.bin';
+              const ext = path.extname(origName).toLowerCase();
+              const base = path.basename(origName, ext).replace(/[^a-zA-Z0-9_\-\.]/g, '_').slice(0, 32);
+              const safeName = `${Date.now()}_${base}${ext || '.bin'}`;
+              const destPath = path.join(uploadsDir, safeName);
+
+              let base64 = f.data || '';
+              if (base64.includes(';base64,')) {
+                base64 = base64.split(';base64,')[1];
+              }
+
+              const buffer = Buffer.from(base64, 'base64');
+              fs.writeFileSync(destPath, buffer);
+
+              savedFiles.push({
+                name: origName,
+                safeName,
+                destPath,
+                path: destPath,
+                url: `/uploads/${safeName}`,
+                size: buffer.length,
+                type: f.type || 'application/octet-stream'
+              });
+            }
+
+            sendJson(res, 200, { ok: true, files: savedFiles });
+          } catch (err) {
+            console.error('Upload error:', err);
+            sendError(res, 400, err.message);
+          }
+        });
+        return;
+      }
+
+      // 5. POST /api/send
       if (req.method === 'POST' && pathname === '/api/send') {
         let body = '';
         req.on('data', chunk => {
           body += chunk;
-          if (body.length > 65536) {
+          if (body.length > 5 * 1024 * 1024) {
             req.destroy();
           }
         });
@@ -357,14 +420,24 @@ export function createServer(options = {}) {
           try {
             const data = JSON.parse(body || '{}');
             const targetSession = data.session || (data.cid ? `rc_${data.cid.slice(0, 8)}` : null);
-            const text = data.text;
+            let text = typeof data.text === 'string' ? data.text.trim() : '';
+            const attachments = Array.isArray(data.attachments) ? data.attachments : [];
 
-            if (!targetSession || typeof text !== 'string' || !text.trim()) {
-              sendError(res, 400, 'Missing target session or text');
+            if (attachments.length > 0) {
+              const attachLines = attachments.map(a => {
+                const p = a.path || a.destPath || a.url || a.name || a;
+                return `- ${p}`;
+              });
+              if (text) text += '\n\n';
+              text += `[첨부 파일]\n${attachLines.join('\n')}`;
+            }
+
+            if (!targetSession || !text) {
+              sendError(res, 400, 'Missing target session or text/attachments');
               return;
             }
 
-            sendTextToTmux(targetSession, text.trim());
+            sendTextToTmux(targetSession, text);
             sendJson(res, 200, { ok: true, session: targetSession });
           } catch (err) {
             sendError(res, 400, err.message);
@@ -373,8 +446,31 @@ export function createServer(options = {}) {
         return;
       }
 
-      // 4. Static file serving (public/)
-      if (req.method === 'GET') {
+      // 6. Uploaded files serving (/uploads/*)
+      if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/uploads/')) {
+        const safeFile = path.basename(pathname);
+        const targetPath = path.join(uploadsDir, safeFile);
+        if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+          const ext = path.extname(targetPath).toLowerCase();
+          const mime = MIME_TYPES[ext] || 'application/octet-stream';
+          res.writeHead(200, {
+            'Content-Type': mime,
+            'Cache-Control': 'public, max-age=86400',
+            'Access-Control-Allow-Origin': '*'
+          });
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
+          fs.createReadStream(targetPath).pipe(res);
+          return;
+        }
+        sendError(res, 404, 'Attachment Not Found');
+        return;
+      }
+
+      // 7. Static file serving (public/)
+      if (req.method === 'GET' || req.method === 'HEAD') {
         let filePath = path.join(publicDir, pathname === '/' ? 'index.html' : pathname);
         // Normalize path and prevent directory traversal
         const normalized = path.normalize(filePath);
@@ -388,8 +484,15 @@ export function createServer(options = {}) {
           const mime = MIME_TYPES[ext] || 'application/octet-stream';
           res.writeHead(200, {
             'Content-Type': mime,
-            'Cache-Control': 'public, max-age=3600'
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Access-Control-Allow-Origin': '*'
           });
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
           fs.createReadStream(normalized).pipe(res);
           return;
         }
@@ -397,7 +500,16 @@ export function createServer(options = {}) {
         // Fallback for single-page app
         const fallback = path.join(publicDir, 'index.html');
         if (fs.existsSync(fallback)) {
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          });
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
           fs.createReadStream(fallback).pipe(res);
           return;
         }

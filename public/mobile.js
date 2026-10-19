@@ -16,11 +16,15 @@
   const composerInput = document.getElementById('composer-input');
   const btnSend = document.getElementById('btn-send');
   const btnScrollBottom = document.getElementById('btn-scroll-bottom');
+  const filePicker = document.getElementById('file-picker');
+  const btnAttach = document.getElementById('btn-attach');
+  const attachmentPreviewBar = document.getElementById('attachment-preview-bar');
 
   let allSessions = { agy: [], claude: [], codex: [], other: [] };
   let currentSession = null;
   let activeEventSource = null;
   let isAutoScroll = true;
+  let pendingAttachments = [];
 
   // --- Utility Functions ---
 
@@ -415,7 +419,20 @@
     msgEl.__turnData = turn;
 
     if (turn.role === 'user') {
-      msgEl.innerHTML = `<div class="bubble">${escapeHtml(turn.content || '')}</div>`;
+      let userHtml = escapeHtml(turn.content || '');
+      if (Array.isArray(turn.attachments) && turn.attachments.length > 0) {
+        userHtml += `<div class="message-attachments">`;
+        turn.attachments.forEach(att => {
+          const isImg = (att.type && att.type.startsWith('image/')) || /\.(png|jpe?g|gif|webp|svg)$/i.test(att.name || att.url || '');
+          if (isImg && att.url) {
+            userHtml += `<img src="${att.url}" class="msg-attach-img" alt="${escapeHtml(att.name || 'image')}">`;
+          } else {
+            userHtml += `<div class="msg-attach-file">📄 ${escapeHtml(att.name || '첨부 파일')}</div>`;
+          }
+        });
+        userHtml += `</div>`;
+      }
+      msgEl.innerHTML = `<div class="bubble">${userHtml}</div>`;
     } else {
       msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn)}</div>`;
     }
@@ -507,24 +524,124 @@
     };
   }
 
+  // --- File Attachments ---
+
+  function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderAttachmentPreviews() {
+    if (!attachmentPreviewBar) return;
+    if (pendingAttachments.length === 0) {
+      attachmentPreviewBar.style.display = 'none';
+      attachmentPreviewBar.innerHTML = '';
+      return;
+    }
+
+    attachmentPreviewBar.style.display = 'flex';
+    attachmentPreviewBar.innerHTML = '';
+
+    pendingAttachments.forEach((att, idx) => {
+      const chip = document.createElement('div');
+      chip.className = 'attachment-chip';
+
+      const isImg = (att.type && att.type.startsWith('image/')) || /\.(png|jpe?g|gif|webp|svg)$/i.test(att.name || '');
+      let thumbHtml = '';
+      if (isImg && att.dataUrl) {
+        thumbHtml = `<img src="${att.dataUrl}" class="attachment-thumb" alt="미리보기">`;
+      } else {
+        thumbHtml = `<span>📄</span>`;
+      }
+
+      chip.innerHTML = `
+        ${thumbHtml}
+        <span class="attachment-name">${escapeHtml(att.name)}</span>
+        <button type="button" class="attachment-remove" aria-label="제거">✕</button>
+      `;
+
+      chip.querySelector('.attachment-remove').addEventListener('click', (e) => {
+        e.stopPropagation();
+        pendingAttachments.splice(idx, 1);
+        renderAttachmentPreviews();
+        updateSendButtonState();
+      });
+
+      attachmentPreviewBar.appendChild(chip);
+    });
+  }
+
+  function updateSendButtonState() {
+    const hasText = !!composerInput.value.trim();
+    const hasAttachments = pendingAttachments.length > 0;
+    btnSend.disabled = (!hasText && !hasAttachments) || !currentSession;
+  }
+
+  if (btnAttach && filePicker) {
+    btnAttach.addEventListener('click', () => {
+      filePicker.value = '';
+      filePicker.click();
+    });
+
+    filePicker.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+
+      for (const f of files) {
+        if (f.size > 25 * 1024 * 1024) {
+          alert(`파일 크기가 너무 큽니다 (25MB 제한): ${f.name}`);
+          continue;
+        }
+        try {
+          const dataUrl = await readFileAsDataURL(f);
+          pendingAttachments.push({
+            name: f.name,
+            size: f.size,
+            type: f.type,
+            dataUrl
+          });
+        } catch (err) {
+          console.error('Failed to read file:', f.name, err);
+        }
+      }
+      renderAttachmentPreviews();
+      updateSendButtonState();
+    });
+  }
+
   // --- Send Message ---
 
   async function sendMessage() {
     const text = composerInput.value.trim();
-    if (!text || !currentSession) return;
+    const hasAttachments = pendingAttachments.length > 0;
+    if ((!text && !hasAttachments) || !currentSession) return;
 
     btnSend.disabled = true;
     composerInput.disabled = true;
+    if (btnAttach) btnAttach.disabled = true;
 
-    // Optimistic user turn if in chat turn mode
-    const isTerminalActive = !!document.getElementById('terminalScreen');
     const cid = currentSession.cid || '';
     const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
+    const isTerminalActive = !!document.getElementById('terminalScreen');
 
+    const attachmentsToUpload = [...pendingAttachments];
+    pendingAttachments = [];
+    renderAttachmentPreviews();
+
+    // Optimistic user turn if in chat turn mode
     if (!isTerminalActive) {
       appendTurn({
         role: 'user',
         content: text,
+        attachments: attachmentsToUpload.map(a => ({
+          name: a.name,
+          type: a.type,
+          url: a.dataUrl
+        })),
         timestamp: new Date().toISOString()
       });
     }
@@ -533,13 +650,39 @@
     composerInput.style.height = 'auto';
 
     try {
+      let uploadedFiles = [];
+      if (attachmentsToUpload.length > 0) {
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files: attachmentsToUpload.map(a => ({
+              name: a.name,
+              type: a.type,
+              data: a.dataUrl
+            })),
+            session: sessionName,
+            cid: cid
+          })
+        });
+
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json();
+          throw new Error(errData.error || '파일 업로드 실패');
+        }
+
+        const uploadData = await uploadRes.json();
+        uploadedFiles = uploadData.files || [];
+      }
+
       const res = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session: sessionName,
           cid: cid,
-          text: text
+          text: text,
+          attachments: uploadedFiles
         })
       });
 
@@ -551,7 +694,8 @@
       alert(`전송 실패: ${err.message}`);
     } finally {
       composerInput.disabled = false;
-      btnSend.disabled = false;
+      if (btnAttach) btnAttach.disabled = false;
+      updateSendButtonState();
       composerInput.focus();
       scrollToBottom(true);
     }
@@ -579,7 +723,7 @@
     // Autogrow
     composerInput.style.height = 'auto';
     composerInput.style.height = `${Math.min(composerInput.scrollHeight, 120)}px`;
-    btnSend.disabled = !composerInput.value.trim() || !currentSession;
+    updateSendButtonState();
   });
 
   composerInput.addEventListener('keydown', (e) => {
