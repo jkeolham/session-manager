@@ -404,6 +404,64 @@ body {
   border-radius: 4px;
 }
 
+/* Links */
+a,
+.bubble a,
+.turn-markdown a,
+.markdown-link {
+  color: var(--accent-color, #7cacf8);
+  text-decoration: underline;
+  text-decoration-color: rgba(124, 172, 248, 0.45);
+  text-underline-offset: 3px;
+  font-weight: 500;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+a:hover, a:active,
+.bubble a:hover, .bubble a:active,
+.turn-markdown a:hover, .turn-markdown a:active,
+.markdown-link:hover, .markdown-link:active {
+  color: #a8c7fa;
+  text-decoration-color: #a8c7fa;
+}
+
+/* Links wrapping code elements: e.g. [`filename`](url) */
+a code,
+.bubble a code,
+.turn-markdown a code,
+.markdown-link code,
+code a {
+  color: #a8c7fa;
+  background: rgba(124, 172, 248, 0.14);
+  border: 1px solid rgba(124, 172, 248, 0.3);
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: rgba(168, 199, 250, 0.5);
+  text-underline-offset: 2px;
+}
+
+a:hover code,
+.bubble a:hover code,
+.turn-markdown a:hover code,
+.markdown-link:hover code {
+  color: #c2e7ff;
+  background: rgba(124, 172, 248, 0.22);
+  border-color: rgba(124, 172, 248, 0.5);
+}
+
+.message.user .bubble a {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.6);
+}
+
+.message.user .bubble a code {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .code-block {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);

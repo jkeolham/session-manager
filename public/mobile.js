@@ -69,7 +69,7 @@
     text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
 
     // 4. Links
-    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a class="markdown-link" href="$2" target="_blank" rel="noopener">$1</a>');
 
     // 5. Unordered Lists
     text = text.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
