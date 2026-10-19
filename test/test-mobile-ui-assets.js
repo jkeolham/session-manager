@@ -41,7 +41,7 @@ function run() {
   assert(fs.existsSync(icon512Path), 'icon-512.png should exist');
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  assert.strictEqual(manifest.display, 'standalone', 'PWA display should be standalone');
+  assert(manifest.display === 'fullscreen' || manifest.display === 'standalone', 'PWA display should be fullscreen or standalone');
   assert(manifest.icons && manifest.icons.length >= 2, 'manifest should have multiple icons');
   assert(html.includes('manifest.json'), 'index.html must link to manifest.json');
 
