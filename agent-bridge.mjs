@@ -1,6 +1,11 @@
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
+import fs from 'fs';
+
+const defaultAgyBin = fs.existsSync(path.join(process.env.HOME || '/home/ttolmany', '.local/bin/agy'))
+  ? path.join(process.env.HOME || '/home/ttolmany', '.local/bin/agy')
+  : 'agy';
 
 export class AgentBridgeManager extends EventEmitter {
   constructor(options = {}) {
@@ -8,6 +13,7 @@ export class AgentBridgeManager extends EventEmitter {
     this.workers = new Map(); // cid -> { proc, lineRemainder, lastUsed, relayUrl }
     this.idleTimeoutMs = options.idleTimeoutMs || 30 * 60 * 1000; // 30 min
     this.workDir = options.workDir || path.join(process.env.HOME || '/home/ttolmany', 'gdrive/work/SecondBrain');
+    this.agyBin = options.agyBin || defaultAgyBin;
 
     // Periodic idle reaper
     this.reaperInterval = setInterval(() => {
@@ -29,7 +35,8 @@ export class AgentBridgeManager extends EventEmitter {
       return worker;
     }
 
-    const proc = spawn('agy', [
+    const customPath = `${path.join(process.env.HOME || '/home/ttolmany', '.local/bin')}:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`;
+    const proc = spawn(this.agyBin, [
       `--conversation=${cid}`,
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
@@ -37,8 +44,15 @@ export class AgentBridgeManager extends EventEmitter {
       '--dangerously-skip-permissions'
     ], {
       cwd: this.workDir,
-      env: { ...process.env, PAGER: 'cat' },
+      env: { ...process.env, PATH: customPath, PAGER: 'cat' },
       stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    console.log(`[AgentBridge] Spawning worker for cid ${cid} using ${this.agyBin}`);
+    proc.on('error', (err) => {
+      console.error(`[AgentBridge] Worker process error for ${cid}:`, err.message);
+      this.workers.delete(cid);
+      this.emit('error', { cid, error: err });
     });
 
     worker = {
@@ -57,10 +71,11 @@ export class AgentBridgeManager extends EventEmitter {
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
+        console.log(`[AgentBridge stdout ${cid.slice(0, 8)}]:`, trimmed.slice(0, 160));
         try {
           const parsed = JSON.parse(trimmed);
           this.emit('event', { cid, data: parsed });
-          if (parsed.event === 'turn' || parsed.event === 'result') {
+          if (parsed.event === 'turn' || parsed.event === 'result' || parsed.event === 'step_update') {
             this.emit('turn', { cid, data: parsed });
           }
         } catch (e) {
@@ -71,14 +86,17 @@ export class AgentBridgeManager extends EventEmitter {
 
     proc.stderr.on('data', (chunk) => {
       const text = chunk.toString('utf-8');
+      console.log(`[AgentBridge stderr ${cid.slice(0, 8)}]:`, text.trim());
       const match = text.match(/https:\/\/antigravity\.google\.com\/r\/[a-zA-Z0-9_-]+/);
       if (match) {
         worker.relayUrl = match[0];
+        console.log(`[AgentBridge relay-url ${cid.slice(0, 8)}]:`, match[0]);
         this.emit('relay-url', { cid, url: match[0] });
       }
     });
 
-    proc.on('exit', () => {
+    proc.on('exit', (code, signal) => {
+      console.log(`[AgentBridge exit ${cid.slice(0, 8)}]: code=${code}, signal=${signal}`);
       this.workers.delete(cid);
       this.emit('exit', { cid });
     });
@@ -88,6 +106,7 @@ export class AgentBridgeManager extends EventEmitter {
   }
 
   sendPrompt(cid, text, attachments = []) {
+    console.log(`[AgentBridge sendPrompt ${cid.slice(0, 8)}]:`, (text || '').slice(0, 60));
     const worker = this.getWorker(cid);
     if (!worker || !worker.proc || worker.proc.killed) {
       throw new Error(`Worker process unavailable for session ${cid}`);
@@ -100,8 +119,10 @@ export class AgentBridgeManager extends EventEmitter {
     }
 
     const msg = {
-      event: 'prompt',
-      prompt: promptText
+      event: 'user',
+      message: {
+        content: promptText
+      }
     };
 
     worker.proc.stdin.write(JSON.stringify(msg) + '\n');

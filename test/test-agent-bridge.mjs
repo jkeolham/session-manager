@@ -26,9 +26,9 @@ test('AgentBridgeManager formats prompt with attachments correctly', () => {
   mgr.sendPrompt('test-cid', 'hello', [{ path: '/tmp/test.jpg' }]);
   assert.strictEqual(written.length, 1);
   const parsed = JSON.parse(written[0]);
-  assert.strictEqual(parsed.event, 'prompt');
-  assert.ok(parsed.prompt.includes('hello'));
-  assert.ok(parsed.prompt.includes('[첨부 파일]\n- /tmp/test.jpg'));
+  assert.strictEqual(parsed.event, 'user');
+  assert.ok(parsed.message.content.includes('hello'));
+  assert.ok(parsed.message.content.includes('[첨부 파일]\n- /tmp/test.jpg'));
   mgr.closeAll();
 });
 
