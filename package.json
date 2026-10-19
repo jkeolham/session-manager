@@ -11,6 +11,10 @@
   "engines": {
     "vscode": "^1.80.0"
   },
+  "scripts": {
+    "serve": "node server.mjs",
+    "test": "node test/test-server-api.js && node test/test-server-stream.js && node test/test-mobile-ui-assets.js"
+  },
   "categories": [
     "Other"
   ],

@@ -111,7 +111,7 @@ function sendError(res, statusCode, message) {
 }
 
 export function createServer(options = {}) {
-  const port = Number(options.port || process.env.PORT || 8788);
+  const port = Number(options.port || process.env.PORT || 8789);
   const host = options.bindHost || process.env.BIND_HOST || '0.0.0.0';
   const publicDir = path.join(__dirname, 'public');
 
@@ -327,7 +327,7 @@ export function createServer(options = {}) {
 
 // Auto-start if run directly
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const port = process.env.PORT || 8788;
+  const port = process.env.PORT || 8789;
   const host = process.env.BIND_HOST || '0.0.0.0';
   createServer({ port, bindHost: host }).catch(err => {
     console.error('Failed to start server:', err);

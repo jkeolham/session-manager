@@ -14,7 +14,7 @@ The current `session-manager` VS Code extension runs within Antigravity IDE on t
 
 ### 1.2 Core Requirements & Success Criteria
 1. **24/7 Always-On Service**: An independent `systemd --user` background daemon (`session-manager-web.service`) runs continuously on N100 without requiring the desktop Antigravity IDE window to remain open.
-2. **Zero-Friction Access**: Bound to the N100 Tailscale IP (`100.88.152.120:8788`) and local LAN (`192.168.1.112:8788`). Because access is restricted to authenticated Tailscale nodes, no password or PIN is required—opening the bookmark or home-screen PWA icon immediately loads the interface.
+2. **Zero-Friction Access**: Bound to the N100 Tailscale IP (`100.88.152.120:8789`) and local LAN (`192.168.1.112:8789`). Because access is restricted to authenticated Tailscale nodes, no password or PIN is required—opening the bookmark or home-screen PWA icon immediately loads the interface.
 3. **Mobile-First Messenger UI**: Tailored specifically for smartphones and tablets:
    - Slide-out drawer or header dropdown for selecting from all 31 sessions categorized into Antigravity, Claude Code, Codex, and Shell.
    - Rich markdown bubbles with syntax highlighting and 1-click code block copy buttons.
@@ -31,7 +31,7 @@ The current `session-manager` VS Code extension runs within Antigravity IDE on t
 ```
 [ Mobile Browser (z-fold8) ]
        │
-       │ HTTP / Server-Sent Events (Tailscale: 100.88.152.120:8788)
+       │ HTTP / Server-Sent Events (Tailscale: 100.88.152.120:8789)
        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │ session-manager-web.service (Node.js http + SSE server.mjs)            │
@@ -178,7 +178,7 @@ ExecStart=/usr/bin/node /home/ttolmany/.local/share/session-manager/server.mjs
 Restart=on-failure
 RestartSec=5s
 Environment=NODE_ENV=production
-Environment=PORT=8788
+Environment=PORT=8789
 Environment=BIND_HOST=0.0.0.0
 
 [Install]
@@ -190,8 +190,8 @@ WantedBy=default.target
 ## 5. Security & Isolation
 
 1. **Network Binding**:
-   - Listens on Port `8788`.
-   - Accessible over Tailscale IP `100.88.152.120:8788` and local home LAN `192.168.1.112:8788`.
+   - Listens on Port `8789`.
+   - Accessible over Tailscale IP `100.88.152.120:8789` and local home LAN `192.168.1.112:8789`.
    - Not exposed to the public Internet (no port-forwarding on router required).
 2. **Input Validation**:
    - `POST /api/send` limits maximum text length to 64KB.
@@ -206,6 +206,6 @@ WantedBy=default.target
    - Verify input sanitization and error handling.
 2. **Integration Verification**:
    - Start the service via `systemctl --user start session-manager-web.service`.
-   - Test HTTP response and SSE stream from local CLI (`curl -N http://127.0.0.1:8788/api/stream?...`).
-   - Open `http://100.88.152.120:8788` on smartphone (z-fold8) over Tailscale.
+   - Test HTTP response and SSE stream from local CLI (`curl -N http://127.0.0.1:8789/api/stream?...`).
+   - Open `http://100.88.152.120:8789` on smartphone (z-fold8) over Tailscale.
    - Verify session switching, markdown rendering, code block copy, and prompt sending to a live tmux session.

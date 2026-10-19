@@ -1,0 +1,17 @@
+[Unit]
+Description=Antigravity Session Manager Mobile Web Service
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ttolmany/.local/share/session-manager
+ExecStart=/usr/bin/node /home/ttolmany/.local/share/session-manager/server.mjs
+Restart=on-failure
+RestartSec=5s
+Environment=NODE_ENV=production
+Environment=PORT=8789
+Environment=BIND_HOST=0.0.0.0
+
+[Install]
+WantedBy=default.target
