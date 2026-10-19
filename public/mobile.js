@@ -850,6 +850,64 @@
     }
   });
 
+  // --- PWA Service Worker Registration & Install Prompt ---
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          console.log('[PWA] ServiceWorker registered with scope:', reg.scope);
+        })
+        .catch((err) => {
+          console.warn('[PWA] ServiceWorker registration failed:', err);
+        });
+    });
+  }
+
+  let deferredInstallPrompt = null;
+  const btnInstallPwa = document.getElementById('btn-install-pwa');
+  const drawerInstallBanner = document.getElementById('drawer-install-banner');
+  const btnDrawerInstallPwa = document.getElementById('btn-drawer-install-pwa');
+
+  const setupInstallButtons = () => {
+    const handleInstallClick = async () => {
+      if (!deferredInstallPrompt) return;
+      if (btnInstallPwa) btnInstallPwa.style.display = 'none';
+      if (drawerInstallBanner) drawerInstallBanner.style.display = 'none';
+      try {
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        console.log('[PWA] User choice:', choice.outcome);
+      } catch (err) {
+        console.error('[PWA] Error during prompt:', err);
+      } finally {
+        deferredInstallPrompt = null;
+      }
+    };
+
+    if (btnInstallPwa) {
+      btnInstallPwa.style.display = 'inline-flex';
+      btnInstallPwa.onclick = handleInstallClick;
+    }
+    if (drawerInstallBanner && btnDrawerInstallPwa) {
+      drawerInstallBanner.style.display = 'block';
+      btnDrawerInstallPwa.onclick = handleInstallClick;
+    }
+  };
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent default mini-infobar and save event for user action
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    setupInstallButtons();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    console.log('[PWA] App successfully installed');
+    deferredInstallPrompt = null;
+    if (btnInstallPwa) btnInstallPwa.style.display = 'none';
+    if (drawerInstallBanner) drawerInstallBanner.style.display = 'none';
+  });
+
   // --- Initial Load ---
   fetchSessions().then(() => {
     const saved = localStorage.getItem('active_session');

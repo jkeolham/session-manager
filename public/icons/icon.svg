@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1f20"/>
+      <stop offset="100%" stop-color="#131314"/>
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a8c7fa"/>
+      <stop offset="100%" stop-color="#7cacf8"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#7cacf8" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background squircle -->
+  <rect x="16" y="16" width="480" height="480" rx="110" fill="url(#bg-grad)" stroke="#313538" stroke-width="4"/>
+
+  <!-- Monitor Screen Outer -->
+  <rect x="96" y="96" width="320" height="230" rx="18" fill="#131314" stroke="#444746" stroke-width="6"/>
+
+  <!-- Header bar -->
+  <path d="M 99 150 L 413 150" stroke="#444746" stroke-width="3"/>
+  <circle cx="126" cy="123" r="7" fill="#ea4335"/>
+  <circle cx="150" cy="123" r="7" fill="#fbbc04"/>
+  <circle cx="174" cy="123" r="7" fill="#34a853"/>
+
+  <!-- Prompt symbol '> _' with glow -->
+  <g filter="url(#glow)">
+    <!-- '>' symbol -->
+    <path d="M 145 195 L 185 225 L 145 255" fill="none" stroke="url(#accent-grad)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- '_' cursor -->
+    <line x1="210" y1="255" x2="270" y2="255" stroke="#a8c7fa" stroke-width="14" stroke-linecap="round"/>
+  </g>
+
+  <!-- Monitor stand and base -->
+  <rect x="236" y="326" width="40" height="42" fill="#444746"/>
+  <rect x="166" y="368" width="180" height="18" rx="9" fill="#444746"/>
+</svg>
