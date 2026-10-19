@@ -470,8 +470,24 @@
         const term = chatHistory.querySelector('.terminal-container');
         if (term) term.remove();
 
-        // Merge with last message if it is an assistant turn
-        const lastMsg = chatHistory.lastElementChild;
+        // 1. Deduplicate user turn if already rendered optimistically
+        if (turn.role === 'user') {
+          const incomingText = (turn.content || '').trim();
+          const recentUserMsgs = Array.from(chatHistory.querySelectorAll('.message.user')).slice(-3);
+          let matched = false;
+          for (const uMsg of recentUserMsgs) {
+            const uTurn = uMsg.__turnData || {};
+            const uText = (uTurn.content || uMsg.querySelector('.bubble')?.innerText || '').trim();
+            if (uText === incomingText || (uText && incomingText && (uText.includes(incomingText) || incomingText.includes(uText)))) {
+              uMsg.__turnData = turn;
+              matched = true;
+              break;
+            }
+          }
+          if (matched) return;
+        }
+
+        // 2. Merge with last message if it is an assistant turn
         if (lastMsg && lastMsg.classList.contains('assistant') && turn.role === 'assistant') {
           const prevTurn = lastMsg.__turnData;
           if (prevTurn) {
@@ -615,11 +631,15 @@
 
   // --- Send Message ---
 
+  let isSending = false;
+
   async function sendMessage() {
+    if (isSending) return;
     const text = composerInput.value.trim();
     const hasAttachments = pendingAttachments.length > 0;
     if ((!text && !hasAttachments) || !currentSession) return;
 
+    isSending = true;
     btnSend.disabled = true;
     composerInput.disabled = true;
     if (btnAttach) btnAttach.disabled = true;
@@ -693,6 +713,7 @@
     } catch (err) {
       alert(`전송 실패: ${err.message}`);
     } finally {
+      isSending = false;
       composerInput.disabled = false;
       if (btnAttach) btnAttach.disabled = false;
       updateSendButtonState();
@@ -727,6 +748,7 @@
   });
 
   composerInput.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();

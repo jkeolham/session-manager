@@ -84,9 +84,9 @@ export function sendTextToTmux(sessionName, text) {
     fs.writeFileSync(tmpFile, text, 'utf-8');
     // 1. Cancel copy-mode in tmux if active
     execSync(`tmux send-keys -t "${sessionName}" -X cancel 2>/dev/null || true`);
-    // 2. Load buffer and paste
+    // 2. Load buffer and paste with bracketed mode (-p) to prevent newlines from auto-submitting
     execSync(`tmux load-buffer "${tmpFile}"`);
-    execSync(`tmux paste-buffer -t "${sessionName}"`);
+    execSync(`tmux paste-buffer -p -t "${sessionName}"`);
     // 3. Small flush delay
     execSync(`sleep 0.05`);
     // 4. Send Enter to submit
