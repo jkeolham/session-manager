@@ -55,8 +55,12 @@ function run() {
   assert(css.includes('usage-modal-sheet'), 'mobile.css should style usage-modal-sheet');
   assert(css.includes('voice-recording-bar'), 'mobile.css should style voice-recording-bar');
   assert(css.includes('voice-btn.recording') || css.includes('.voice-btn.recording'), 'mobile.css should style voice-btn recording state');
+  assert(css.includes('msg-attach-card'), 'mobile.css should style msg-attach-card');
+  assert(css.includes('attach-link-disclosure'), 'mobile.css should style attach-link-disclosure');
 
   const js = fs.readFileSync(jsPath, 'utf8');
+  assert(js.includes('extractUserTurnAttachments'), 'mobile.js should include extractUserTurnAttachments');
+  assert(js.includes('loadAttachmentText'), 'mobile.js should include loadAttachmentText');
   assert(js.includes('initModelPicker'), 'mobile.js should include initModelPicker');
   assert(js.includes('setEffort'), 'mobile.js should include setEffort');
   assert(js.includes('openUsageModal'), 'mobile.js should include openUsageModal');

@@ -96,4 +96,19 @@ assert.strictEqual(earlierResult.hasEarlier, false, 'No earlier turns left');
 assert.strictEqual(earlierResult.earliestIndex, 1);
 assert.strictEqual(earlierResult.latestIndex, 2);
 
+// 6. Test attachment extraction from user input
+const withAttachment = JSON.stringify({
+  step_index: 7,
+  source: "USER_EXPLICIT",
+  type: "USER_INPUT",
+  status: "DONE",
+  content: "스크롤 다운 기능을 고쳐줘.\n\n[첨부 파일]\n- /home/ttolmany/.local/share/session-manager/uploads/test.txt"
+});
+const attachResult = parseTranscriptString(withAttachment, 1);
+assert.strictEqual(attachResult.turns[0].content, '스크롤 다운 기능을 고쳐줘.');
+assert(Array.isArray(attachResult.turns[0].attachments), 'attachments should be an array');
+assert.strictEqual(attachResult.turns[0].attachments.length, 1);
+assert.strictEqual(attachResult.turns[0].attachments[0].name, 'test.txt');
+assert.strictEqual(attachResult.turns[0].attachments[0].url, '/uploads/test.txt');
+
 console.log('✅ test-transcript-parser passed!');

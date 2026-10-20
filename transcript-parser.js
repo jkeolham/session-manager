@@ -23,6 +23,34 @@ function cleanString(str) {
   return str.replace(/^["'\s]+|["'\s]+$/g, '').trim();
 }
 
+function extractUserAttachments(rawText) {
+  let text = String(rawText || '');
+  const attachments = [];
+
+  const attachBlockRegex = /(?:\n\s*)?\[(?:첨부 파일|Attached Files)\]\s*([\s\S]*)$/i;
+  const match = text.match(attachBlockRegex);
+
+  if (match) {
+    const listPart = match[1];
+    text = text.slice(0, match.index).trim();
+    const lines = listPart.split('\n');
+    for (const line of lines) {
+      const trimmed = line.replace(/^[\s\-\*•]+/, '').trim();
+      if (!trimmed) continue;
+      const fileName = trimmed.split('/').pop() || 'attachment';
+      const isUpload = trimmed.includes('/uploads/');
+      const url = isUpload ? `/uploads/${fileName}` : trimmed;
+      attachments.push({
+        name: fileName,
+        path: trimmed,
+        url: url
+      });
+    }
+  }
+
+  return { text, attachments };
+}
+
 function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
   if (!rawText || !rawText.trim()) {
     return { turns: [], totalCount: 0, hasEarlier: false, earliestIndex: null, latestIndex: null };
@@ -40,10 +68,12 @@ function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
       if (obj.type === 'USER_INPUT') {
         const cleaned = cleanUserMessage(obj.content);
         if (!cleaned) continue;
+        const { text: contentText, attachments } = extractUserAttachments(cleaned);
         allTurns.push({
           index: obj.step_index || allTurns.length + 1,
           role: 'user',
-          content: cleaned,
+          content: contentText,
+          attachments: attachments,
           timestamp: obj.timestamp || obj.created_at || null
         });
       } else if (obj.type === 'PLANNER_RESPONSE') {

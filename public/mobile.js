@@ -763,24 +763,139 @@
     }
   }
 
+  const attachmentContentCache = new Map();
+
+  function loadAttachmentText(url, codeElement) {
+    if (!url || !codeElement) return;
+    if (attachmentContentCache.has(url)) {
+      codeElement.textContent = attachmentContentCache.get(url);
+      return;
+    }
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+      })
+      .then(txt => {
+        attachmentContentCache.set(url, txt);
+        codeElement.textContent = txt;
+      })
+      .catch(err => {
+        codeElement.textContent = `(파일 내용 로드 실패: ${err.message})`;
+      });
+  }
+
+  function extractUserTurnAttachments(rawContent, initialAttachments = []) {
+    let cleanText = String(rawContent || '');
+    const list = [...(initialAttachments || [])];
+
+    const attachBlockRegex = /(?:\n\s*)?\[(?:첨부 파일|Attached Files)\]\s*([\s\S]*)$/i;
+    const match = cleanText.match(attachBlockRegex);
+
+    if (match) {
+      const listPart = match[1];
+      cleanText = cleanText.slice(0, match.index).trim();
+      const lines = listPart.split('\n');
+      for (const line of lines) {
+        const trimmed = line.replace(/^[\s\-\*•]+/, '').trim();
+        if (!trimmed) continue;
+        const fileName = trimmed.split('/').pop() || 'attachment';
+        const already = list.some(a => (a.name === fileName) || (a.path === trimmed) || (a.url && a.url.includes(fileName)));
+        if (!already) {
+          const isUpload = trimmed.includes('/uploads/');
+          const url = isUpload ? `/uploads/${fileName}` : trimmed;
+          list.push({
+            name: fileName,
+            path: trimmed,
+            url: url
+          });
+        }
+      }
+    }
+
+    return { cleanText, attachments: list };
+  }
+
   function createTurnElement(turn) {
     const msgEl = document.createElement('div');
     msgEl.className = `message ${turn.role || 'assistant'}`;
     msgEl.__turnData = turn;
 
     if (turn.role === 'user') {
-      let userHtml = `<div class="user-content-text">${escapeHtml(turn.content || '')}</div>`;
-      if (Array.isArray(turn.attachments) && turn.attachments.length > 0) {
+      const { cleanText, attachments } = extractUserTurnAttachments(turn.content, turn.attachments);
+      let userHtml = '';
+      if (cleanText) {
+        userHtml += `<div class="user-content-text">${escapeHtml(cleanText)}</div>`;
+      }
+
+      const textLoadQueue = [];
+
+      if (attachments && attachments.length > 0) {
         userHtml += `<div class="message-attachments">`;
-        turn.attachments.forEach(att => {
-          const isImg = (att.type && att.type.startsWith('image/')) || /\.(png|jpe?g|gif|webp|svg)$/i.test(att.name || att.url || '');
-          if (isImg && att.url) {
-            userHtml += `<img src="${att.url}" class="msg-attach-img" alt="${escapeHtml(att.name || 'image')}">`;
+        attachments.forEach((att, idx) => {
+          const fileName = att.name || (att.path ? att.path.split('/').pop() : '') || 'attachment';
+          const fileUrl = att.url || (att.path && att.path.includes('/uploads/') ? `/uploads/${fileName}` : att.path) || '';
+          const displayPath = att.path || att.url || fileName;
+          const extMatch = fileName.match(/\.([a-zA-Z0-9]+)$/);
+          const ext = extMatch ? extMatch[1].toLowerCase() : '';
+
+          const isImg = (att.type && att.type.startsWith('image/')) || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
+          const isText = (att.type && (att.type.startsWith('text/') || att.type.includes('json') || att.type.includes('javascript') || att.type.includes('xml'))) ||
+            ['txt', 'md', 'json', 'js', 'mjs', 'ts', 'py', 'sh', 'bash', 'css', 'html', 'log', 'csv', 'yaml', 'yml', 'xml', 'sql', 'diff'].includes(ext);
+
+          userHtml += `<div class="msg-attach-card">`;
+          userHtml += `
+            <div class="msg-attach-card-header">
+              <span class="msg-attach-header-title">
+                <span>${isImg ? '🖼️' : (isText ? '📄' : '📦')}</span>
+                <span>${escapeHtml(fileName)}</span>
+              </span>
+              ${ext ? `<span class="msg-attach-ext-badge">${escapeHtml(ext)}</span>` : ''}
+            </div>
+          `;
+
+          // 1. 컨텐츠 렌더링
+          if (isImg && fileUrl) {
+            userHtml += `<img src="${escapeHtml(fileUrl)}" class="msg-attach-img" alt="${escapeHtml(fileName)}" loading="lazy">`;
+          } else if (isText && fileUrl) {
+            const codeId = `attach-code-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+            let directContent = att.content || null;
+            if (!directContent && att.dataUrl && att.dataUrl.includes(';base64,')) {
+              try {
+                directContent = atob(att.dataUrl.split(';base64,')[1]);
+              } catch (e) {}
+            }
+
+            if (directContent) {
+              userHtml += `<pre class="msg-attach-code"><code>${escapeHtml(directContent)}</code></pre>`;
+            } else {
+              userHtml += `<pre class="msg-attach-code"><code id="${codeId}">텍스트 내용 불러오는 중...</code></pre>`;
+              textLoadQueue.push({ url: fileUrl, elementId: codeId });
+            }
           } else {
-            userHtml += `<div class="msg-attach-file">📄 ${escapeHtml(att.name || '첨부 파일')}</div>`;
+            userHtml += `<div class="msg-attach-file"><span>📦 ${escapeHtml(fileName)}</span></div>`;
           }
+
+          // 2. 링크 주소 디폴트 접힘 아코디언 (클릭 시 펼침)
+          userHtml += `
+            <details class="attach-link-disclosure">
+              <summary class="attach-link-summary">
+                <svg class="attach-link-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+                <span>첨부 파일 링크 / 경로 보기</span>
+                <span class="attach-caret">▾</span>
+              </summary>
+              <div class="attach-link-body">
+                <a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener noreferrer" class="attach-link-anchor" title="새 창에서 원본 열기">${escapeHtml(displayPath)}</a>
+              </div>
+            </details>
+          `;
+
+          userHtml += `</div>`; // .msg-attach-card
         });
-        userHtml += `</div>`;
+        userHtml += `</div>`; // .message-attachments
       }
 
       const timeText = formatMessageTime(turn.timestamp);
@@ -807,6 +922,15 @@
           <div class="bubble">${userHtml}</div>
         </div>
       `;
+
+      if (textLoadQueue.length > 0) {
+        setTimeout(() => {
+          textLoadQueue.forEach(item => {
+            const el = document.getElementById(item.elementId);
+            if (el) loadAttachmentText(item.url, el);
+          });
+        }, 10);
+      }
     } else {
       msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn)}</div>`;
     }
