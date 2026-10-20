@@ -20,11 +20,24 @@
   const btnAttach = document.getElementById('btn-attach');
   const attachmentPreviewBar = document.getElementById('attachment-preview-bar');
 
+  // In-chat Search Elements
+  const chatSearchBar = document.getElementById('chat-search-bar');
+  const chatSearchInput = document.getElementById('chat-search-input');
+  const chatSearchCount = document.getElementById('chat-search-count');
+  const chatSearchNav = document.getElementById('chat-search-nav');
+  const btnSearchPrev = document.getElementById('btn-search-prev');
+  const btnSearchNext = document.getElementById('btn-search-next');
+  const btnSearchClose = document.getElementById('btn-search-close');
+
   let allSessions = { agy: [], claude: [], codex: [], other: [] };
   let currentSession = null;
   let activeEventSource = null;
   let isAutoScroll = true;
   let pendingAttachments = [];
+
+  let searchHideTimer = null;
+  let matchedMarks = [];
+  let currentMatchIndex = -1;
 
   // --- Utility Functions ---
 
@@ -428,6 +441,11 @@
     emptyState.style.display = 'none';
     chatHistory.innerHTML = '<div class="loading-spinner">대화 내역을 불러오는 중...</div>';
     renderQueuedMessages();
+
+    // Reset in-chat search
+    if (chatSearchInput) chatSearchInput.value = '';
+    clearSearchHighlights();
+    hideChatSearchBar();
 
     // Disconnect old SSE
     if (activeEventSource) {
@@ -1517,11 +1535,249 @@
     window.visualViewport.addEventListener('scroll', onViewportResize);
   }
 
+  // --- In-chat Search Functionality (Reveals on Scroll-Up) ---
+
+  function showChatSearchBar() {
+    if (!chatSearchBar) return;
+    chatSearchBar.classList.add('visible');
+    resetSearchHideTimer();
+  }
+
+  function hideChatSearchBar() {
+    if (!chatSearchBar) return;
+    chatSearchBar.classList.remove('visible');
+    clearTimeout(searchHideTimer);
+    searchHideTimer = null;
+    if (chatSearchInput && document.activeElement === chatSearchInput) {
+      chatSearchInput.blur();
+    }
+    if (chatSearchInput && !chatSearchInput.value.trim()) {
+      clearSearchHighlights();
+    }
+  }
+
+  function resetSearchHideTimer() {
+    clearTimeout(searchHideTimer);
+    searchHideTimer = null;
+    if (chatSearchInput && !chatSearchInput.value.trim()) {
+      searchHideTimer = setTimeout(() => {
+        if (!chatSearchInput.value.trim() && document.activeElement !== chatSearchInput) {
+          hideChatSearchBar();
+        }
+      }, 3000);
+    }
+  }
+
+  function clearSearchHighlights() {
+    matchedMarks = [];
+    currentMatchIndex = -1;
+    if (chatSearchCount) chatSearchCount.style.display = 'none';
+    if (chatSearchNav) chatSearchNav.style.display = 'none';
+
+    if (!chatHistory) return;
+    const existingMarks = chatHistory.querySelectorAll('mark.search-highlight');
+    existingMarks.forEach(mark => {
+      const parent = mark.parentNode;
+      mark.replaceWith(document.createTextNode(mark.textContent));
+      if (parent) parent.normalize();
+    });
+  }
+
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function performChatSearch(query) {
+    clearSearchHighlights();
+    const term = (query || '').trim();
+    if (!term || !chatHistory) {
+      resetSearchHideTimer();
+      return;
+    }
+
+    clearTimeout(searchHideTimer);
+    searchHideTimer = null;
+
+    const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
+    const targetBlocks = chatHistory.querySelectorAll('.user-turn-text, .turn-markdown, .work-process-body');
+
+    targetBlocks.forEach(block => {
+      const walker = document.createTreeWalker(
+        block,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode: function (node) {
+            if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+            if (node.parentNode && (node.parentNode.tagName === 'MARK' || node.parentNode.tagName === 'SCRIPT' || node.parentNode.tagName === 'STYLE')) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+
+      const textNodes = [];
+      let currentNode;
+      while ((currentNode = walker.nextNode())) {
+        textNodes.push(currentNode);
+      }
+
+      textNodes.forEach(node => {
+        const val = node.nodeValue;
+        if (regex.test(val)) {
+          const fragment = document.createDocumentFragment();
+          let lastIdx = 0;
+          regex.lastIndex = 0;
+          let match;
+          while ((match = regex.exec(val)) !== null) {
+            if (match.index > lastIdx) {
+              fragment.appendChild(document.createTextNode(val.slice(lastIdx, match.index)));
+            }
+            const mark = document.createElement('mark');
+            mark.className = 'search-highlight';
+            mark.textContent = match[0];
+            fragment.appendChild(mark);
+            lastIdx = regex.lastIndex;
+          }
+          if (lastIdx < val.length) {
+            fragment.appendChild(document.createTextNode(val.slice(lastIdx)));
+          }
+          node.parentNode.replaceChild(fragment, node);
+        }
+      });
+    });
+
+    matchedMarks = Array.from(chatHistory.querySelectorAll('mark.search-highlight'));
+    const total = matchedMarks.length;
+
+    if (total === 0) {
+      if (chatSearchCount) {
+        chatSearchCount.textContent = '0/0';
+        chatSearchCount.style.display = 'inline-block';
+      }
+      if (chatSearchNav) chatSearchNav.style.display = 'none';
+      currentMatchIndex = -1;
+    } else {
+      currentMatchIndex = 0;
+      updateSearchNavDisplay();
+      highlightCurrentMatch(0);
+    }
+  }
+
+  function updateSearchNavDisplay() {
+    const total = matchedMarks.length;
+    if (total === 0) {
+      if (chatSearchCount) {
+        chatSearchCount.textContent = '0/0';
+        chatSearchCount.style.display = 'inline-block';
+      }
+      if (chatSearchNav) chatSearchNav.style.display = 'none';
+    } else {
+      if (chatSearchCount) {
+        chatSearchCount.textContent = `${currentMatchIndex + 1}/${total}`;
+        chatSearchCount.style.display = 'inline-block';
+      }
+      if (chatSearchNav) chatSearchNav.style.display = 'inline-flex';
+    }
+  }
+
+  function highlightCurrentMatch(index) {
+    if (matchedMarks.length === 0) return;
+    matchedMarks.forEach(m => m.classList.remove('search-highlight-current'));
+    const target = matchedMarks[index];
+    if (!target) return;
+
+    target.classList.add('search-highlight-current');
+
+    const parentDetails = target.closest('details');
+    if (parentDetails && !parentDetails.open) {
+      parentDetails.open = true;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    updateSearchNavDisplay();
+  }
+
+  function navigateSearch(direction) {
+    const total = matchedMarks.length;
+    if (total === 0) return;
+    if (direction === 'next') {
+      currentMatchIndex = (currentMatchIndex + 1) % total;
+    } else {
+      currentMatchIndex = (currentMatchIndex - 1 + total) % total;
+    }
+    highlightCurrentMatch(currentMatchIndex);
+  }
+
+  if (chatSearchInput) {
+    let searchDebounceTimer = null;
+    chatSearchInput.addEventListener('input', (e) => {
+      clearTimeout(searchDebounceTimer);
+      const val = e.target.value;
+      if (!val.trim()) {
+        clearSearchHighlights();
+        resetSearchHideTimer();
+      } else {
+        clearTimeout(searchHideTimer);
+        searchDebounceTimer = setTimeout(() => {
+          performChatSearch(val);
+        }, 150);
+      }
+    });
+
+    chatSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch('prev');
+        } else {
+          navigateSearch('next');
+        }
+      } else if (e.key === 'Escape') {
+        hideChatSearchBar();
+      }
+    });
+
+    chatSearchInput.addEventListener('focus', () => {
+      clearTimeout(searchHideTimer);
+    });
+
+    chatSearchInput.addEventListener('blur', () => {
+      resetSearchHideTimer();
+    });
+  }
+
+  if (btnSearchPrev) {
+    btnSearchPrev.addEventListener('click', () => navigateSearch('prev'));
+  }
+  if (btnSearchNext) {
+    btnSearchNext.addEventListener('click', () => navigateSearch('next'));
+  }
+  if (btnSearchClose) {
+    btnSearchClose.addEventListener('click', () => {
+      if (chatSearchInput) chatSearchInput.value = '';
+      clearSearchHighlights();
+      hideChatSearchBar();
+    });
+  }
+
   let lastScrollTop = 0;
   chatContainer.addEventListener('scroll', () => {
     const currentScrollTop = chatContainer.scrollTop;
-    const isScrollingUp = currentScrollTop < lastScrollTop;
+    const scrollDelta = lastScrollTop - currentScrollTop;
+    const isScrollingUp = scrollDelta > 6;
+    const isScrollingDown = scrollDelta < -6;
     lastScrollTop = currentScrollTop;
+
+    // 대화 내용 검색창: 스크롤 업 하면 나타남 (상단 20px 이상에서)
+    if (isScrollingUp && currentScrollTop > 20) {
+      showChatSearchBar();
+    } else if (isScrollingDown) {
+      // 아무 입력없이 스크롤 다운 시 즉시 사라짐
+      if (chatSearchInput && !chatSearchInput.value.trim() && document.activeElement !== chatSearchInput) {
+        hideChatSearchBar();
+      }
+    }
 
     const isAtBottom = chatContainer.scrollHeight - currentScrollTop - chatContainer.clientHeight < 50;
     isAutoScroll = isAtBottom;

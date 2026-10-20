@@ -21,6 +21,8 @@ function run() {
   assert(html.includes('queued-messages-container'), 'index.html must include queued-messages-container');
   assert(html.includes('review-modal'), 'index.html must include review-modal');
   assert(html.includes('pull-refresh-indicator'), 'index.html must include pull-refresh-indicator');
+  assert(html.includes('chat-search-bar'), 'index.html must include chat-search-bar');
+  assert(html.includes('chat-search-input'), 'index.html must include chat-search-input');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
@@ -39,8 +41,13 @@ function run() {
   assert(css.includes('btn-queue-order'), 'mobile.css should style btn-queue-order');
   assert(css.includes('keyboard-active'), 'mobile.css should handle keyboard-active');
   assert(css.includes('review-modal'), 'mobile.css should style review-modal');
+  assert(css.includes('chat-search-bar'), 'mobile.css should style chat-search-bar');
+  assert(css.includes('search-highlight'), 'mobile.css should style search-highlight');
 
   const js = fs.readFileSync(jsPath, 'utf8');
+  assert(js.includes('performChatSearch'), 'mobile.js should include performChatSearch');
+  assert(js.includes('showChatSearchBar'), 'mobile.js should include showChatSearchBar');
+  assert(js.includes('hideChatSearchBar'), 'mobile.js should include hideChatSearchBar');
   assert(js.includes('btn-toggle-tools'), 'mobile.js should include tool toggle logic');
   assert(js.includes('btn-google-web'), 'mobile.js should bind current session url to google web button');
   assert(js.includes('user-processing-indicator'), 'mobile.js should render user processing indicator');

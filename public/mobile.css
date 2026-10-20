@@ -179,6 +179,135 @@ body {
   color: #60a5fa;
 }
 
+/* --- In-chat Search Bar (Reveals on Scroll-Up) --- */
+.chat-search-bar {
+  position: fixed;
+  top: calc(var(--header-height) + var(--safe-area-inset-top));
+  left: 0;
+  right: 0;
+  z-index: 9;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+.chat-search-bar.visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.search-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 4px 12px;
+  height: 38px;
+  box-sizing: border-box;
+}
+
+.search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+#chat-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+#chat-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: #7cacf8;
+  background: rgba(124, 172, 248, 0.15);
+  padding: 2px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.search-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.search-nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.search-nav-btn:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.search-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 50%;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.search-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+/* Search Highlights */
+mark.search-highlight {
+  background-color: rgba(251, 188, 4, 0.35);
+  color: inherit;
+  padding: 1px 2px;
+  border-radius: 2px;
+  transition: background-color 0.15s;
+}
+
+mark.search-highlight-current {
+  background-color: #fbbc04;
+  color: #000000;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(251, 188, 4, 0.9);
+}
+
 #current-session-subtitle {
   font-size: 11px;
   color: var(--text-muted);
