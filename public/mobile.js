@@ -73,13 +73,57 @@
       .replace(/'/g, '&#39;');
   }
 
+  // --- Markdown Parser with Marked.js & GFM Support (Dashboard Grade) ---
+  if (typeof marked !== 'undefined' && marked.use) {
+    const defaultTable = marked.Renderer.prototype.table;
+    marked.use({
+      gfm: true,
+      breaks: true,
+      renderer: {
+        table(token) {
+          const html = defaultTable.call(this, token);
+          return `<div class="table-container">${html}</div>`;
+        },
+        code(token) {
+          const lang = token.lang ? token.lang.trim() : 'code';
+          const cleanCode = token.text || '';
+          return `
+            <div class="code-block">
+              <div class="code-header">
+                <span>${escapeHtml(lang)}</span>
+                <button class="copy-btn" onclick="window.copyCodeBlock(this)">복사</button>
+              </div>
+              <pre><code>${escapeHtml(cleanCode)}</code></pre>
+            </div>
+          `;
+        },
+        link(token) {
+          const href = token.href || '#';
+          const title = token.title ? ` title="${escapeHtml(token.title)}"` : '';
+          const text = this.parser.parseInline(token.tokens);
+          return `<a class="markdown-link" href="${escapeHtml(href)}"${title} target="_blank" rel="noopener">${text}</a>`;
+        }
+      }
+    });
+  }
+
   function renderMarkdown(rawText) {
     if (!rawText) return '';
-    let text = String(rawText);
+    const text = String(rawText);
 
-    // 1. Code blocks with copy button
+    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+      try {
+        return marked.parse(text);
+      } catch (err) {
+        console.warn('Marked parse error, falling back:', err);
+      }
+    }
+
+    // Fallback parser if marked is unavailable
+    let parsed = text;
+    // 1. Code blocks
     const codeBlocks = [];
-    text = text.replace(/```([a-zA-Z0-9_\-\.]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    parsed = parsed.replace(/```([a-zA-Z0-9_\-\.]*)\n([\s\S]*?)```/g, (match, lang, code) => {
       const idx = codeBlocks.length;
       const cleanLang = lang.trim() || 'code';
       const cleanCode = code.replace(/\n$/, '');
@@ -96,39 +140,47 @@
       return `__CODE_BLOCK_${idx}__`;
     });
 
-    // 2. Inline code
-    text = text.replace(/`([^`\n]+)`/g, (m, c) => `<code>${escapeHtml(c)}</code>`);
+    // 2. Tables
+    parsed = parsed.replace(/^\|(.+)\|\r?\n\|([-: |]+)\|\r?\n((?:\|.*\|\r?\n?)*)/gm, (match, headerLine, alignLine, bodyLines) => {
+      const headers = headerLine.split('|').map(h => h.trim()).filter(h => h.length > 0);
+      const rows = bodyLines.trim().split('\n').map(row => row.split('|').map(c => c.trim()).filter(c => c.length > 0));
+      let ths = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
+      let trs = rows.map(r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+      return `<div class="table-container"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+    });
 
-    // 3. Bold & Italic
-    text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    // 3. Headings
+    parsed = parsed.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    parsed = parsed.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    parsed = parsed.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    parsed = parsed.replace(/^---$/gim, '<hr>');
 
-    // 4. Links
-    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a class="markdown-link" href="$2" target="_blank" rel="noopener">$1</a>');
+    // 4. Inline formatting
+    parsed = parsed.replace(/`([^`\n]+)`/g, (m, c) => `<code>${escapeHtml(c)}</code>`);
+    parsed = parsed.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    parsed = parsed.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    parsed = parsed.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a class="markdown-link" href="$2" target="_blank" rel="noopener">$1</a>');
+    parsed = parsed.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+    parsed = parsed.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
 
-    // 5. Unordered Lists
-    text = text.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
-    text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-
-    // 6. Paragraphs and Line Breaks
-    const paragraphs = text.split(/\n{2,}/);
-    text = paragraphs
+    // Paragraphs
+    const paragraphs = parsed.split(/\n{2,}/);
+    parsed = paragraphs
       .map(p => {
         p = p.trim();
         if (!p) return '';
-        if (p.startsWith('__CODE_BLOCK_') || p.startsWith('<ul>') || p.startsWith('<details')) {
+        if (p.startsWith('__CODE_BLOCK_') || p.startsWith('<ul>') || p.startsWith('<details') || p.startsWith('<div') || p.startsWith('<h') || p.startsWith('<hr')) {
           return p;
         }
         return `<p>${p.replace(/\n/g, '<br>')}</p>`;
       })
       .join('');
 
-    // Restore Code Blocks
     codeBlocks.forEach((block, idx) => {
-      text = text.replace(`__CODE_BLOCK_${idx}__`, block);
+      parsed = parsed.replace(`__CODE_BLOCK_${idx}__`, block);
     });
 
-    return text;
+    return parsed;
   }
 
   window.copyCodeBlock = function (btn) {
@@ -574,7 +626,20 @@
   function buildAssistantTurnBody(turn, forceOpen = false) {
     let bodyHtml = '';
 
-    const hasThinkings = (turn.thinkings && turn.thinkings.length > 0) || (turn.thinking && turn.thinking.trim());
+    // 중복 사고 과정 필터링 (동일 문장 반복 누적 방지)
+    const uniqueThinkings = [];
+    if (turn.thinkings && Array.isArray(turn.thinkings)) {
+      turn.thinkings.forEach(t => {
+        const trimmed = String(t).trim();
+        if (trimmed && !uniqueThinkings.includes(trimmed)) {
+          uniqueThinkings.push(trimmed);
+        }
+      });
+    } else if (turn.thinking && typeof turn.thinking === 'string' && turn.thinking.trim()) {
+      uniqueThinkings.push(turn.thinking.trim());
+    }
+
+    const hasThinkings = uniqueThinkings.length > 0;
     const toolList = Array.isArray(turn.toolCalls) ? turn.toolCalls : [];
     const toolCount = toolList.length;
     const hasWorkProcess = hasThinkings || toolCount > 0;
@@ -584,20 +649,18 @@
     if (hasWorkProcess) {
       const parts = [];
       if (hasThinkings) {
-        const count = turn.thinkings ? turn.thinkings.length : 1;
-        parts.push(count > 1 ? `사고 과정 ${count}단계` : '사고 과정');
+        parts.push(uniqueThinkings.length > 1 ? `사고 과정 ${uniqueThinkings.length}단계` : '사고 과정');
       }
       if (toolCount > 0) {
         parts.push(`도구 실행 ${toolCount}건`);
       }
       const summaryLabel = `⚙️ 작업 과정 (${parts.join(' · ')})`;
-      const shouldOpen = forceOpen || isGenerating;
+      // 대시보드 스타일: 화면을 과도하게 가리지 않도록 디폴트로 접힌 상태 유지
+      const shouldOpen = forceOpen;
 
       let innerHtml = '';
       if (hasThinkings) {
-        const fullThinking = turn.thinkings && turn.thinkings.length > 0
-          ? turn.thinkings.join('\n\n---\n\n')
-          : turn.thinking;
+        const fullThinking = uniqueThinkings.join('\n\n---\n\n');
         innerHtml += `
           <div class="process-section">
             <div class="process-subtitle">💭 사고 과정 ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>생각 중</span>' : ''}</div>
@@ -670,13 +733,9 @@
       `;
     } else if (isGenerating) {
       bodyHtml += `
-        <div class="live-thinking-card">
-          <div class="thinking-header">
-            <div class="thinking-spinner"></div>
-            <span class="thinking-title">에이전트가 생각하고 있습니다...</span>
-            <span class="live-badge"><span class="live-indicator-dot"></span>사고 중</span>
-          </div>
-          <div class="thinking-preview">답변 및 도구 실행을 계획하는 중입니다...</div>
+        <div class="live-thinking-chip live-thinking-card">
+          <span class="thinking-spinner-mini"></span>
+          <span class="thinking-chip-text">생각하는 중...</span>
         </div>
       `;
     }
@@ -1529,18 +1588,14 @@
         timestamp: new Date().toISOString()
       });
 
-      // Show live thinking indicator
+      // Show live thinking indicator (Dashboard Slim Chip)
       const typingEl = document.createElement('div');
       typingEl.className = 'message assistant typing-msg';
       typingEl.innerHTML = `
         <div class="bubble">
-          <div class="live-thinking-card">
-            <div class="thinking-header">
-              <div class="thinking-spinner"></div>
-              <span class="thinking-title">에이전트가 생각하고 있습니다...</span>
-              <span class="live-badge"><span class="live-indicator-dot"></span>사고 중</span>
-            </div>
-            <div class="thinking-preview">입력된 내용을 분석하고 실행 계획을 수립하고 있습니다...</div>
+          <div class="live-thinking-chip live-thinking-card">
+            <span class="thinking-spinner-mini"></span>
+            <span class="thinking-chip-text">생각하는 중...</span>
           </div>
         </div>
       `;
