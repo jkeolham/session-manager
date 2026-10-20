@@ -982,9 +982,15 @@
   }
 
   let isSyncingSession = false;
+  let lastSyncTime = 0;
 
   async function syncActiveSession(forceReconnect = true) {
     if (!currentSession || isSyncingSession) return;
+    const now = Date.now();
+    // 1초 이내 빈번한 중복 sync 호출 방지 (알림창 열고 닫을 때 focus/visibilitychange 연쇄 호출 방어)
+    if (now - lastSyncTime < 1000 && !forceReconnect) return;
+    lastSyncTime = now;
+
     const cid = currentSession.cid || '';
     const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
     if (!cid && !sessionName) return;
@@ -1004,7 +1010,9 @@
             if (existingMessages.length === 0) {
               chatHistory.innerHTML = '';
               grouped.forEach(t => appendTurn(t));
-              scrollToBottom(true);
+              if (isAutoScroll) {
+                scrollToBottom(true);
+              }
             } else {
               const latestServerTurn = grouped[grouped.length - 1];
               const lastRenderedEl = chatHistory.querySelector('.message:last-of-type:not(.typing-msg)');
@@ -1016,8 +1024,16 @@
                 (latestServerTurn.content || '') !== (lastRenderedTurn.content || '') ||
                 ((latestServerTurn.toolCalls || []).length !== (lastRenderedTurn.toolCalls || []).length);
 
-              if (isDifferentLastTurn || grouped.length !== existingMessages.length) {
-                const wasNearBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 180;
+              // 사용자가 이전 메시지를 로드한 상태(existingMessages.length > grouped.length)에서는
+              // 단순 100개 길이 비교로 전체 DOM을 날리지 않음!
+              const hasLoadedEarlier = earliestLoadedTurnIndex !== null && existingMessages.length >= grouped.length;
+              const needsFullRerender = isDifferentLastTurn || (!hasLoadedEarlier && grouped.length !== existingMessages.length);
+
+              if (needsFullRerender) {
+                // 현재 스크롤 위치 및 바닥 여부 정밀 보존
+                const prevScrollTop = chatContainer.scrollTop;
+                const wasNearBottom = isAutoScroll && ((chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 180);
+
                 chatHistory.innerHTML = '';
                 hasEarlierMessages = !!data.hasEarlier;
                 earliestLoadedTurnIndex = data.earliestIndex || (data.turns && data.turns[0] ? data.turns[0].index : null);
@@ -1027,8 +1043,12 @@
                   renderLoadEarlierButton(remaining);
                 }
                 grouped.forEach(t => appendTurn(t));
+
                 if (wasNearBottom) {
                   scrollToBottom(true);
+                } else {
+                  // 사용자가 중간 대화를 읽거나 캡처하려고 터치 중이었다면 원래 스크롤 위치 완벽 복원
+                  chatContainer.scrollTop = prevScrollTop;
                 }
               }
             }
@@ -1679,7 +1699,8 @@
       const maxAllowedOffset = Math.max(0, Math.round(rect.top - minAllowedTop));
       const finalOffset = Math.min(overlap, maxAllowedOffset);
 
-      if (finalOffset > 0) {
+      const isKeyboardOpen = finalOffset > 0;
+      if (isKeyboardOpen) {
         composer.style.transform = `translateY(-${finalOffset}px)`;
         composer.classList.add('keyboard-active');
       } else {
@@ -1688,12 +1709,17 @@
       }
 
       if (chatContainer) {
-        chatContainer.style.paddingBottom = finalOffset > 0 ? `${finalOffset + 16}px` : '16px';
+        chatContainer.style.paddingBottom = isKeyboardOpen ? `${finalOffset + 16}px` : '16px';
       }
-      scrollToBottom(true);
+
+      // 오직 입력창에 직접 포커스가 가 있고 사용자가 원래 맨 바닥을 보고 있었을 때만 맨 아래로 정렬!
+      // (중간 대화를 보거나 캡처하려고 터치/툴바 제스처를 취할 때는 스크롤 위치를 절대 건드리지 않음)
+      if (isKeyboardOpen && document.activeElement === composerInput && isAutoScroll) {
+        scrollToBottom(false);
+      }
     };
     window.visualViewport.addEventListener('resize', onViewportResize);
-    window.visualViewport.addEventListener('scroll', onViewportResize);
+    // 주의: visualViewport 'scroll' 리스너는 화면 터치/스크롤 제스처 시 발화하여 오작동을 유발하므로 등록하지 않음!
   }
 
   // --- In-chat Search Functionality (Reveals on Scroll-Up) ---
@@ -2270,6 +2296,7 @@
   // --- Pull-to-Refresh & Down-scroll at End Refresh ---
   const pullRefreshIndicator = document.getElementById('pull-refresh-indicator');
   let touchStartY = 0;
+  let touchStartX = 0;
   let isTouching = false;
   let isRefreshing = false;
 
@@ -2305,6 +2332,7 @@
   chatContainer.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       touchStartY = e.touches[0].clientY;
+      touchStartX = e.touches[0].clientX;
       isTouching = true;
     }
   }, { passive: true });
@@ -2312,7 +2340,15 @@
   chatContainer.addEventListener('touchmove', (e) => {
     if (!isTouching || isRefreshing || e.touches.length !== 1) return;
     const currentY = e.touches[0].clientY;
+    const currentX = e.touches[0].clientX;
     const deltaY = currentY - touchStartY;
+    const deltaX = currentX - touchStartX;
+
+    // 수평 스와이프 제스처(손날 캡처, 뒤로가기 제스처 등) 중에는 pull-to-refresh 무시
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (pullRefreshIndicator) pullRefreshIndicator.classList.remove('visible');
+      return;
+    }
 
     const isAtTop = chatContainer.scrollTop <= 5;
 
@@ -2336,7 +2372,16 @@
     }
     isTouching = false;
     const currentY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : touchStartY;
+    const currentX = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX : touchStartX;
     const deltaY = currentY - touchStartY;
+    const deltaX = currentX - touchStartX;
+
+    // 수평 제스처였던 경우 새로고침 무시
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (pullRefreshIndicator) pullRefreshIndicator.classList.remove('visible');
+      return;
+    }
+
     const isAtTop = chatContainer.scrollTop <= 10;
 
     // Only refresh when pulled down from top edge (prevent bottom scroll jitter)
