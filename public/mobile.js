@@ -1853,11 +1853,16 @@
       }
     }
 
-    const isAtBottom = chatContainer.scrollHeight - currentScrollTop - chatContainer.clientHeight < 50;
+    const isAtBottom = chatContainer.scrollHeight - currentScrollTop - chatContainer.clientHeight < 45;
     isAutoScroll = isAtBottom;
     if (isAtBottom) {
       btnScrollBottom.classList.remove('visible');
     } else {
+      const composerEl = document.getElementById('composer');
+      if (composerEl && btnScrollBottom) {
+        const composerHeight = composerEl.offsetHeight || 74;
+        btnScrollBottom.style.bottom = (composerHeight + 12) + 'px';
+      }
       btnScrollBottom.classList.add('visible');
     }
 
@@ -1868,7 +1873,9 @@
   }, { passive: true });
 
   btnScrollBottom.addEventListener('click', () => {
+    isAutoScroll = true;
     chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
+    btnScrollBottom.classList.remove('visible');
   });
 
   // Auto-sync & reconnect when returning from another app or waking up
@@ -2184,10 +2191,9 @@
     const deltaY = currentY - touchStartY;
 
     const isAtTop = chatContainer.scrollTop <= 5;
-    const isAtBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) <= 15;
 
-    // Trigger feedback when user drags downwards from top or bottom edge
-    if (deltaY > 0 && (isAtTop || isAtBottom)) {
+    // Trigger feedback only when user drags downwards from top edge (pull-to-refresh)
+    if (deltaY > 0 && isAtTop) {
       const pullDist = Math.min(deltaY * 0.45, 90);
       if (pullDist > 15 && pullRefreshIndicator) {
         pullRefreshIndicator.classList.add('visible');
@@ -2208,27 +2214,12 @@
     const currentY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : touchStartY;
     const deltaY = currentY - touchStartY;
     const isAtTop = chatContainer.scrollTop <= 10;
-    const isAtBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) <= 25;
 
-    if (deltaY > 60 && (isAtTop || isAtBottom)) {
+    // Only refresh when pulled down from top edge (prevent bottom scroll jitter)
+    if (deltaY > 60 && isAtTop) {
       triggerPullRefresh();
     } else if (pullRefreshIndicator) {
       pullRefreshIndicator.classList.remove('visible');
-    }
-  }, { passive: true });
-
-  let wheelOverBottomCount = 0;
-  let wheelResetTimer = null;
-  chatContainer.addEventListener('wheel', (e) => {
-    const isAtBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) <= 5;
-    if (isAtBottom && e.deltaY > 25) {
-      wheelOverBottomCount++;
-      clearTimeout(wheelResetTimer);
-      wheelResetTimer = setTimeout(() => { wheelOverBottomCount = 0; }, 800);
-      if (wheelOverBottomCount >= 3) {
-        wheelOverBottomCount = 0;
-        triggerPullRefresh();
-      }
     }
   }, { passive: true });
 
