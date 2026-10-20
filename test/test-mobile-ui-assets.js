@@ -31,9 +31,11 @@ function run() {
   assert(css.includes('session-status-spinner'), 'mobile.css should style session-status-spinner');
   assert(css.includes('session-status-dot'), 'mobile.css should style session-status-dot');
   assert(css.includes('session-status-time'), 'mobile.css should style session-status-time');
+  assert(css.includes('btn-toggle-tools'), 'mobile.css should style btn-toggle-tools');
   assert(css.includes('review-modal'), 'mobile.css should style review-modal');
 
   const js = fs.readFileSync(jsPath, 'utf8');
+  assert(js.includes('btn-toggle-tools'), 'mobile.js should include tool toggle logic');
   assert(js.includes('EventSource'), 'mobile.js should subscribe via EventSource');
   assert(js.includes('/api/sessions'), 'mobile.js should fetch sessions');
   assert(js.includes('/api/send'), 'mobile.js should post messages');

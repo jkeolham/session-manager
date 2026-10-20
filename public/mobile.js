@@ -557,12 +557,7 @@
       }
 
       if (toolCount > 0) {
-        innerHtml += `
-          <div class="process-section">
-            <div class="process-subtitle">🛠️ 도구 실행 내역 (${toolCount}건) ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>실행 중</span>' : ''}</div>
-            <div class="process-tools-list">
-        `;
-        toolList.forEach((tc, idx) => {
+        const renderToolItem = (tc, idx) => {
           const title = tc.label || tc.summary || tc.name || `도구 #${idx + 1}`;
           let cmdStr = '';
           if (tc.args && typeof tc.args === 'object') {
@@ -571,7 +566,7 @@
             else if (tc.args.query) cmdStr = tc.args.query;
             else if (Object.keys(tc.args).length > 0) cmdStr = JSON.stringify(tc.args);
           }
-          innerHtml += `
+          return `
             <div class="process-tool-item">
               <div class="tool-item-header">
                 <span class="tool-badge">${escapeHtml(tc.name || 'tool')}</span>
@@ -581,8 +576,32 @@
               ${tc.output ? `<pre class="tool-output">${escapeHtml(tc.output)}</pre>` : ''}
             </div>
           `;
-        });
+        };
+
+        let toolsListHtml = '';
+        if (toolCount <= 2) {
+          toolsListHtml = toolList.map(renderToolItem).join('');
+        } else {
+          const earlierTools = toolList.slice(0, -2);
+          const recentTools = toolList.slice(-2);
+          const earlierHtml = earlierTools.map((tc, idx) => renderToolItem(tc, idx)).join('');
+          const recentHtml = recentTools.map((tc, idx) => renderToolItem(tc, earlierTools.length + idx)).join('');
+          toolsListHtml = `
+            <button type="button" class="btn-toggle-tools" data-count="${earlierTools.length}">
+              ▼ 이전 도구 실행 내역 ${earlierTools.length}건 더보기
+            </button>
+            <div class="earlier-tools-wrap" style="display: none;">
+              ${earlierHtml}
+            </div>
+            ${recentHtml}
+          `;
+        }
+
         innerHtml += `
+          <div class="process-section">
+            <div class="process-subtitle">🛠️ 도구 실행 내역 (${toolCount}건) ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>실행 중</span>' : ''}</div>
+            <div class="process-tools-list">
+              ${toolsListHtml}
             </div>
           </div>
         `;
@@ -1381,6 +1400,22 @@
     if (reviewBtn) {
       e.stopPropagation();
       openReviewModal();
+      return;
+    }
+
+    // 3. Toggle earlier tools button
+    const toggleBtn = e.target.closest('.btn-toggle-tools');
+    if (toggleBtn) {
+      e.stopPropagation();
+      const wrap = toggleBtn.nextElementSibling;
+      if (wrap && wrap.classList.contains('earlier-tools-wrap')) {
+        const isHidden = wrap.style.display === 'none';
+        wrap.style.display = isHidden ? 'flex' : 'none';
+        const count = toggleBtn.getAttribute('data-count') || '';
+        toggleBtn.innerText = isHidden
+          ? `▲ 도구 실행 내역 접기 (최신 2건만 보기)`
+          : `▼ 이전 도구 실행 내역 ${count}건 더보기`;
+      }
       return;
     }
   });

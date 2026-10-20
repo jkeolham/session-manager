@@ -722,6 +722,43 @@ details.work-process-block[open] .work-process-summary {
   gap: 8px;
 }
 
+.earlier-tools-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.btn-toggle-tools {
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #7cacf8;
+  background: rgba(124, 172, 248, 0.08);
+  border: 1px dashed rgba(124, 172, 248, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  margin-bottom: 8px;
+  user-select: none;
+}
+
+.btn-toggle-tools:hover {
+  background: rgba(124, 172, 248, 0.16);
+  border-color: #7cacf8;
+  color: #93c5fd;
+}
+
+.btn-toggle-tools:active {
+  background: rgba(124, 172, 248, 0.22);
+  transform: scale(0.98);
+}
+
 .process-tool-item {
   background-color: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--border-subtle);
