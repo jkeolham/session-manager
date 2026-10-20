@@ -144,19 +144,69 @@
       <div id="attachment-preview-bar" class="attachment-preview-bar" style="display: none;"></div>
 
       <div class="composer-box">
-        <input type="file" id="file-picker" multiple style="display: none;">
-        <button id="btn-attach" class="attach-btn" type="button" aria-label="파일 첨부">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-          </svg>
-        </button>
-        <textarea id="composer-input" rows="1" placeholder="메시지 입력... (Enter=전송, Shift+Enter=줄바꿈)" autocomplete="off"></textarea>
-        <button id="btn-send" class="send-btn" aria-label="전송" disabled>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        </button>
+        <!-- Voice Recording Mini Bar (녹음 진행 중일 때 노출) -->
+        <div id="voice-recording-bar" class="voice-recording-bar" style="display: none;">
+          <div class="voice-rec-left">
+            <svg class="voice-rec-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+            <span class="voice-rec-text">Recording...</span>
+          </div>
+          <div class="voice-rec-right">
+            <span id="voice-rec-timer" class="voice-rec-timer">0:00</span>
+            <button id="btn-voice-stop" class="voice-btn-stop" type="button" aria-label="녹음 완료">
+              <span class="voice-stop-square"></span>
+            </button>
+            <button id="btn-voice-cancel" class="voice-btn-cancel" type="button" aria-label="녹음 취소">✕</button>
+          </div>
+        </div>
+
+        <textarea id="composer-input" rows="1" placeholder="Ask anything, @ to mention, / for actions" autocomplete="off"></textarea>
+
+        <div class="composer-toolbar">
+          <div class="toolbar-left">
+            <input type="file" id="file-picker" multiple style="display: none;">
+            <button id="btn-attach" class="attach-btn" type="button" aria-label="파일 첨부">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <button id="btn-model-picker" class="model-picker-chip" type="button" aria-label="모델 선택">
+              <span id="model-picker-name" class="model-name-text">Gemini 3.8 Flash High</span>
+              <svg class="model-gauge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f9ab00" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a10 10 0 0 0-10 10c0 4.4 2.9 8.2 7 9.5"/>
+                <path d="M22 12A10 10 0 0 0 12 2"/>
+                <path d="M12 12l5-5"/>
+                <circle cx="12" cy="12" r="2" fill="#f9ab00"/>
+              </svg>
+              <svg class="model-caret-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <div class="toolbar-right">
+            <button id="btn-voice" class="voice-btn" type="button" aria-label="음성 입력">
+              <svg class="voice-idle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+              <div class="voice-dots-anim">
+                <span></span><span></span><span></span>
+              </div>
+            </button>
+            <button id="btn-send" class="send-btn" aria-label="전송" disabled>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </footer>
 
@@ -181,8 +231,35 @@
         <div class="loading-spinner">변경 사항을 불러오는 중...</div>
       </div>
     </div>
+
+    <!-- Model Picker Bottom Sheet Modal -->
+    <div id="model-picker-backdrop" class="modal-backdrop"></div>
+    <div id="model-picker-sheet" class="model-picker-sheet">
+      <div class="sheet-drag-handle"></div>
+      <div class="model-sheet-header">
+        <span class="model-sheet-title">Model</span>
+      </div>
+      <div id="model-sheet-list" class="model-sheet-list">
+        <!-- Javascript dynamically renders available models -->
+      </div>
+      <div class="model-sheet-divider"></div>
+      <div id="btn-view-usage" class="model-sheet-usage-btn">
+        <div class="usage-label-wrap">
+          <svg class="usage-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 0 0-10 10c0 4.4 2.9 8.2 7 9.5"/>
+            <path d="M22 12A10 10 0 0 0 12 2"/>
+            <path d="M12 12l5-5"/>
+            <circle cx="12" cy="12" r="2" fill="currentColor"/>
+          </svg>
+          <span class="usage-text">View Usage</span>
+        </div>
+        <svg class="usage-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+      </div>
+    </div>
   </div>
 
-  <script src="/mobile.js?v=20261020_v22"></script>
+  <script src="/mobile.js?v=20261020_v23"></script>
 </body>
 </html>

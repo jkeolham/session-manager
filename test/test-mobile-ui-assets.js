@@ -23,6 +23,10 @@ function run() {
   assert(html.includes('pull-refresh-indicator'), 'index.html must include pull-refresh-indicator');
   assert(html.includes('chat-search-bar'), 'index.html must include chat-search-bar');
   assert(html.includes('chat-search-input'), 'index.html must include chat-search-input');
+  assert(html.includes('btn-model-picker'), 'index.html must include btn-model-picker');
+  assert(html.includes('model-picker-sheet'), 'index.html must include model-picker-sheet');
+  assert(html.includes('btn-voice'), 'index.html must include btn-voice');
+  assert(html.includes('voice-recording-bar'), 'index.html must include voice-recording-bar');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
@@ -43,8 +47,16 @@ function run() {
   assert(css.includes('review-modal'), 'mobile.css should style review-modal');
   assert(css.includes('chat-search-bar'), 'mobile.css should style chat-search-bar');
   assert(css.includes('search-highlight'), 'mobile.css should style search-highlight');
+  assert(css.includes('model-picker-chip'), 'mobile.css should style model-picker-chip');
+  assert(css.includes('model-picker-sheet'), 'mobile.css should style model-picker-sheet');
+  assert(css.includes('voice-recording-bar'), 'mobile.css should style voice-recording-bar');
+  assert(css.includes('voice-btn.recording') || css.includes('.voice-btn.recording'), 'mobile.css should style voice-btn recording state');
 
   const js = fs.readFileSync(jsPath, 'utf8');
+  assert(js.includes('initModelPicker'), 'mobile.js should include initModelPicker');
+  assert(js.includes('initVoiceRecognition'), 'mobile.js should include initVoiceRecognition');
+  assert(js.includes('startVoiceRecording'), 'mobile.js should include startVoiceRecording');
+  assert(js.includes('stopVoiceRecording'), 'mobile.js should include stopVoiceRecording');
   assert(js.includes('performChatSearch'), 'mobile.js should include performChatSearch');
   assert(js.includes('showChatSearchBar'), 'mobile.js should include showChatSearchBar');
   assert(js.includes('hideChatSearchBar'), 'mobile.js should include hideChatSearchBar');

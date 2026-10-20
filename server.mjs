@@ -204,6 +204,17 @@ export function createServer(options = {}) {
         return;
       }
 
+      // 1.00 GET /api/models — return available models for agent conversations
+      if (req.method === 'GET' && pathname === '/api/models') {
+        try {
+          const result = await daemonBridge.getAvailableModels();
+          sendJson(res, 200, result);
+        } catch (err) {
+          sendError(res, 500, err.message);
+        }
+        return;
+      }
+
       // 1.01 GET /api/diff — return git status and diff for the session's workspace
       if (req.method === 'GET' && pathname === '/api/diff') {
         const cid = urlObj.searchParams.get('cid');
@@ -600,8 +611,15 @@ export function createServer(options = {}) {
             const cid = fullCid || data.cid;
             if (cid && /^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(cid)) {
               try {
-                await daemonBridge.sendPrompt(cid, text);
-                sendJson(res, 200, { ok: true, bridge: 'daemon', session: resolvedSession, cid });
+                let plannerConfig = data.plannerConfig || null;
+                if (!plannerConfig && data.model) {
+                  plannerConfig = {
+                    planModel: data.model,
+                    requestedModel: { model: data.model }
+                  };
+                }
+                await daemonBridge.sendPrompt(cid, text, plannerConfig);
+                sendJson(res, 200, { ok: true, bridge: 'daemon', session: resolvedSession, cid, model: data.model });
               } catch (err) {
                 sendError(res, 503, err.message);
               }

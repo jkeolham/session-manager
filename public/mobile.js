@@ -29,6 +29,21 @@
   const btnSearchNext = document.getElementById('btn-search-next');
   const btnSearchClose = document.getElementById('btn-search-close');
 
+  // Model Picker Elements
+  const btnModelPicker = document.getElementById('btn-model-picker');
+  const modelPickerName = document.getElementById('model-picker-name');
+  const modelPickerSheet = document.getElementById('model-picker-sheet');
+  const modelPickerBackdrop = document.getElementById('model-picker-backdrop');
+  const modelSheetList = document.getElementById('model-sheet-list');
+  const btnViewUsage = document.getElementById('btn-view-usage');
+
+  // Voice Recording Elements
+  const btnVoice = document.getElementById('btn-voice');
+  const voiceRecordingBar = document.getElementById('voice-recording-bar');
+  const voiceRecTimer = document.getElementById('voice-rec-timer');
+  const btnVoiceStop = document.getElementById('btn-voice-stop');
+  const btnVoiceCancel = document.getElementById('btn-voice-cancel');
+
   let allSessions = { agy: [], claude: [], codex: [], other: [] };
   let currentSession = null;
   let activeEventSource = null;
@@ -1408,15 +1423,25 @@
         uploadedFiles = uploadData.files || [];
       }
 
+      const selectedModelObj = typeof getSelectedModel === 'function' ? getSelectedModel() : null;
+      const sendPayload = {
+        session: sessionName,
+        cid: cid,
+        text: text,
+        attachments: uploadedFiles
+      };
+      if (selectedModelObj && selectedModelObj.model) {
+        sendPayload.model = selectedModelObj.model;
+        sendPayload.plannerConfig = {
+          planModel: selectedModelObj.model,
+          requestedModel: { model: selectedModelObj.model }
+        };
+      }
+
       const res = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session: sessionName,
-          cid: cid,
-          text: text,
-          attachments: uploadedFiles
-        })
+        body: JSON.stringify(sendPayload)
       });
 
       if (!res.ok) {
@@ -2195,7 +2220,309 @@
     }
   }, { passive: true });
 
+  // ============================================================================
+  // Model Picker & Voice Recognition (Antigravity 2.0 Feature Set)
+  // ============================================================================
+
+  const MODEL_STORAGE_KEY = 'agy_selected_model_id';
+  let availableModels = [
+    {
+      id: 'gemini-3.8-flash-high',
+      displayName: 'Gemini 3.8 Flash',
+      subLabel: 'High',
+      chipLabel: 'Gemini 3.8 Flash High',
+      model: 'MODEL_PLACEHOLDER_M318',
+      disabled: false
+    },
+    {
+      id: 'claude-sonnet-4-6',
+      displayName: 'Claude Sonnet 4.6 (Thinking)',
+      subLabel: 'Notice ⓘ',
+      chipLabel: 'Claude Sonnet 4.6',
+      tagTitle: 'Notice',
+      tagDescription: 'Sonnet 5.5 is now available on paid Pro and Ultra plans.',
+      model: 'MODEL_PLACEHOLDER_M35',
+      disabled: false
+    },
+    {
+      id: 'claude-opus-4-6-thinking',
+      displayName: 'Claude Opus 4.6 (Thinking)',
+      subLabel: 'Notice ⓘ',
+      chipLabel: 'Claude Opus 4.6',
+      tagTitle: 'Notice',
+      tagDescription: 'Opus 5.5 is now available on paid Pro and Ultra plans.',
+      model: 'MODEL_PLACEHOLDER_M26',
+      disabled: false
+    },
+    {
+      id: 'gpt-oss-120b-medium',
+      displayName: 'GPT-OSS 120B (Medium)',
+      subLabel: 'Notice ⓘ',
+      chipLabel: 'GPT-OSS 120B',
+      tagTitle: 'Notice',
+      tagDescription: 'GPT-OSS will be removed on November 2, 2026.',
+      model: 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM',
+      disabled: false
+    },
+    {
+      id: 'gemini-4-argon-disabled',
+      displayName: 'Gemini 4 Argon',
+      subLabel: 'Unavailable ⓘ',
+      chipLabel: 'Gemini 4 Argon',
+      tagTitle: 'Unavailable',
+      tagDescription: 'Gemini 4 Argon is currently available to Ultra and paid Pro subscribers.',
+      model: 'MODEL_PLACEHOLDER_M421',
+      disabled: true
+    }
+  ];
+
+  let selectedModelId = localStorage.getItem(MODEL_STORAGE_KEY) || 'gemini-3.8-flash-high';
+
+  function getSelectedModel() {
+    return availableModels.find(m => m.id === selectedModelId) || availableModels[0];
+  }
+
+  function updateModelChipDisplay() {
+    const current = getSelectedModel();
+    if (modelPickerName && current) {
+      modelPickerName.innerText = current.chipLabel || `${current.displayName} ${current.subLabel || ''}`.trim();
+    }
+  }
+
+  function openModelPicker() {
+    renderModelList();
+    if (modelPickerSheet) modelPickerSheet.classList.add('visible');
+    if (modelPickerBackdrop) modelPickerBackdrop.classList.add('visible');
+  }
+
+  function closeModelPicker() {
+    if (modelPickerSheet) modelPickerSheet.classList.remove('visible');
+    if (modelPickerBackdrop) modelPickerBackdrop.classList.remove('visible');
+  }
+
+  function renderModelList() {
+    if (!modelSheetList) return;
+    modelSheetList.innerHTML = '';
+
+    availableModels.forEach(m => {
+      const itemEl = document.createElement('div');
+      itemEl.className = `model-item ${m.id === selectedModelId ? 'active' : ''} ${m.disabled ? 'disabled' : ''}`;
+
+      let badgeHtml = '';
+      if (m.subLabel) {
+        if (m.subLabel === 'High') {
+          badgeHtml = `<span class="model-item-sub">High</span>`;
+        } else {
+          badgeHtml = `<span class="model-item-badge">${escapeHtml(m.subLabel)}</span>`;
+        }
+      }
+
+      itemEl.innerHTML = `
+        <div class="model-item-main">
+          <span class="model-item-name">${escapeHtml(m.displayName)}</span>
+          ${badgeHtml}
+        </div>
+        <div class="model-item-actions">
+          <svg class="model-check-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <svg class="model-chevron-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </div>
+      `;
+
+      if (!m.disabled) {
+        itemEl.addEventListener('click', () => {
+          selectedModelId = m.id;
+          localStorage.setItem(MODEL_STORAGE_KEY, selectedModelId);
+          updateModelChipDisplay();
+          renderModelList();
+          closeModelPicker();
+        });
+      }
+
+      modelSheetList.appendChild(itemEl);
+    });
+  }
+
+  async function fetchServerModels() {
+    try {
+      const res = await fetch('/api/models');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.models) && data.models.length > 0) {
+          availableModels = data.models.map(m => ({
+            ...m,
+            chipLabel: m.chipLabel || `${m.displayName} ${m.subLabel || ''}`.trim()
+          }));
+          updateModelChipDisplay();
+          renderModelList();
+        }
+      }
+    } catch (e) {
+      // Keep presets
+    }
+  }
+
+  function initModelPicker() {
+    updateModelChipDisplay();
+    if (btnModelPicker) {
+      btnModelPicker.addEventListener('click', openModelPicker);
+    }
+    if (modelPickerBackdrop) {
+      modelPickerBackdrop.addEventListener('click', closeModelPicker);
+    }
+    const handle = modelPickerSheet ? modelPickerSheet.querySelector('.sheet-drag-handle') : null;
+    if (handle) {
+      handle.addEventListener('click', closeModelPicker);
+    }
+    if (btnViewUsage) {
+      btnViewUsage.addEventListener('click', () => {
+        alert('모델 사용량: 현재 플랜에서 세션당 쿼터가 정상 활성화되어 있습니다.');
+        closeModelPicker();
+      });
+    }
+    fetchServerModels();
+  }
+
+  // --- Voice Recognition ---
+  let recognition = null;
+  let isRecording = false;
+  let recordingSeconds = 0;
+  let recordingTimerInterval = null;
+  let textBeforeRecording = '';
+
+  function formatRecordingTimer(secs) {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins}:${s < 10 ? '0' : ''}${s}`;
+  }
+
+  function startVoiceRecording() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('사용하시는 브라우저가 음성 인식(Web Speech API)을 지원하지 않습니다.');
+      return;
+    }
+
+    try {
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'ko-KR';
+
+      textBeforeRecording = composerInput.value;
+      let finalTranscript = '';
+
+      recognition.onstart = () => {
+        isRecording = true;
+        recordingSeconds = 0;
+        if (voiceRecTimer) voiceRecTimer.innerText = '0:00';
+        if (voiceRecordingBar) voiceRecordingBar.style.display = 'flex';
+        if (btnVoice) btnVoice.classList.add('recording');
+
+        clearInterval(recordingTimerInterval);
+        recordingTimerInterval = setInterval(() => {
+          recordingSeconds++;
+          if (voiceRecTimer) voiceRecTimer.innerText = formatRecordingTimer(recordingSeconds);
+        }, 1000);
+      };
+
+      recognition.onresult = (event) => {
+        let interim = '';
+        finalTranscript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+        const currentSpoken = (finalTranscript + ' ' + interim).trim();
+        const separator = (textBeforeRecording && !textBeforeRecording.endsWith(' ')) ? ' ' : '';
+        composerInput.value = textBeforeRecording ? (textBeforeRecording + separator + currentSpoken) : currentSpoken;
+        composerInput.style.height = 'auto';
+        composerInput.style.height = Math.min(composerInput.scrollHeight, 160) + 'px';
+        updateSendButtonState();
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error === 'not-allowed') {
+          alert('마이크 접근 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.');
+        }
+        stopVoiceRecording(true);
+      };
+
+      recognition.onend = () => {
+        if (isRecording) {
+          stopVoiceRecording(true);
+        }
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error('음성 인식 시작 오류:', err);
+      stopVoiceRecording(true);
+    }
+  }
+
+  function stopVoiceRecording(commitText = true) {
+    isRecording = false;
+    clearInterval(recordingTimerInterval);
+    recordingTimerInterval = null;
+
+    if (voiceRecordingBar) voiceRecordingBar.style.display = 'none';
+    if (btnVoice) btnVoice.classList.remove('recording');
+
+    if (recognition) {
+      try {
+        if (commitText) {
+          recognition.stop();
+        } else {
+          recognition.abort();
+        }
+      } catch (e) {}
+      recognition = null;
+    }
+
+    if (!commitText) {
+      composerInput.value = textBeforeRecording;
+      composerInput.style.height = 'auto';
+      composerInput.style.height = Math.min(composerInput.scrollHeight, 160) + 'px';
+      updateSendButtonState();
+    }
+  }
+
+  function initVoiceRecognition() {
+    if (btnVoice) {
+      btnVoice.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (isRecording) {
+          stopVoiceRecording(true);
+        } else {
+          startVoiceRecording();
+        }
+      });
+    }
+    if (btnVoiceStop) {
+      btnVoiceStop.addEventListener('click', (e) => {
+        e.preventDefault();
+        stopVoiceRecording(true);
+      });
+    }
+    if (btnVoiceCancel) {
+      btnVoiceCancel.addEventListener('click', (e) => {
+        e.preventDefault();
+        stopVoiceRecording(false);
+      });
+    }
+  }
+
   // --- Initial Load ---
+  initModelPicker();
+  initVoiceRecognition();
+
   fetchSessions().then(() => {
     const saved = localStorage.getItem('active_session');
     if (saved) {

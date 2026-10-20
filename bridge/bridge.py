@@ -96,7 +96,9 @@ def last_model(cid):
 
 def send_user(cid, text, planner=None):
     """SendUserCascadeMessage on the daemon LS — the dashboard's own call."""
-    if not planner:
+    if isinstance(planner, str):
+        planner = {"planModel": planner, "requestedModel": {"model": planner}}
+    elif not planner:
         model = last_model(cid)
         planner = {"planModel": model, "requestedModel": {"model": model}}
     return ls_rpc("SendUserCascadeMessage",
@@ -248,8 +250,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path.rstrip("/") in ("", "/health"):
+        path = self.path.rstrip("/")
+        if path in ("", "/health"):
             self._reply(200, {"ok": True, "ls": LS_ADDRESS, "lsAlive": ls_alive(LS_ADDRESS), "pid": os.getpid()})
+        elif path == "/models":
+            try:
+                resp = ls_rpc("GetAvailableModels", {})
+                self._reply(200, resp)
+            except Exception as e:
+                self._reply(500, {"error": str(e)})
         else:
             self._reply(404, {"error": "not found"})
 

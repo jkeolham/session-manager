@@ -37,6 +37,15 @@ async function run() {
     assert(Array.isArray(sessions.codex), 'sessions.codex should be an array');
     assert(Array.isArray(sessions.other || sessions.others), 'sessions.other should be an array');
 
+    // 1b. GET /api/models
+    const resModels = await request('/api/models');
+    assert.strictEqual(resModels.status, 200, 'GET /api/models should return 200');
+    const modelsData = JSON.parse(resModels.body);
+    assert(modelsData.ok, 'modelsData.ok should be true');
+    assert(Array.isArray(modelsData.models), 'modelsData.models should be an array');
+    assert(modelsData.models.length >= 3, 'modelsData.models should have at least 3 models');
+    assert(modelsData.models.some(m => m.id === 'gemini-3.8-flash-high'), 'should include gemini-3.8-flash-high');
+
     // 2. GET /api/transcript with missing query params -> 400
     const resInvalid = await request('/api/transcript');
     assert.strictEqual(resInvalid.status, 400, 'GET /api/transcript without params should return 400');
