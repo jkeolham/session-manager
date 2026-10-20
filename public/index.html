@@ -239,6 +239,17 @@
       <div class="model-sheet-header">
         <span class="model-sheet-title">Model</span>
       </div>
+
+      <!-- Reasoning Effort Selection (Low / Mid / High) -->
+      <div class="effort-control-bar">
+        <span class="effort-control-title">Reasoning Effort</span>
+        <div class="effort-segmented-control" id="model-effort-group">
+          <button type="button" class="effort-btn" data-effort="low">Low</button>
+          <button type="button" class="effort-btn" data-effort="mid">Mid</button>
+          <button type="button" class="effort-btn active" data-effort="high">High</button>
+        </div>
+      </div>
+
       <div id="model-sheet-list" class="model-sheet-list">
         <!-- Javascript dynamically renders available models -->
       </div>
@@ -258,8 +269,29 @@
         </svg>
       </div>
     </div>
+
+    <!-- Usage & Quotas Bottom Sheet Modal -->
+    <div id="usage-modal-backdrop" class="modal-backdrop"></div>
+    <div id="usage-modal-sheet" class="usage-modal-sheet">
+      <div class="sheet-drag-handle"></div>
+      <div class="usage-sheet-header">
+        <div class="usage-header-title-wrap">
+          <svg class="usage-header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f9ab00" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 0 0-10 10c0 4.4 2.9 8.2 7 9.5"/>
+            <path d="M22 12A10 10 0 0 0 12 2"/>
+            <path d="M12 12l5-5"/>
+            <circle cx="12" cy="12" r="2" fill="#f9ab00"/>
+          </svg>
+          <span class="usage-sheet-title">Plan Usage &amp; Quotas</span>
+        </div>
+        <button id="btn-close-usage" class="icon-btn close-modal-btn" type="button" aria-label="닫기">✕</button>
+      </div>
+      <div id="usage-sheet-content" class="usage-sheet-content">
+        <div class="loading-spinner">사용량 데이터를 불러오는 중...</div>
+      </div>
+    </div>
   </div>
 
-  <script src="/mobile.js?v=20261020_v23"></script>
+  <script src="/mobile.js?v=20261020_v24"></script>
 </body>
 </html>

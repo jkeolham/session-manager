@@ -215,6 +215,17 @@ export function createServer(options = {}) {
         return;
       }
 
+      // 1.00b GET /api/usage — return quota and usage metrics
+      if (req.method === 'GET' && pathname === '/api/usage') {
+        try {
+          const result = await daemonBridge.getUserUsageSummary();
+          sendJson(res, 200, result);
+        } catch (err) {
+          sendError(res, 500, err.message);
+        }
+        return;
+      }
+
       // 1.01 GET /api/diff — return git status and diff for the session's workspace
       if (req.method === 'GET' && pathname === '/api/diff') {
         const cid = urlObj.searchParams.get('cid');

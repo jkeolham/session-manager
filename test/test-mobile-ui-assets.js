@@ -25,6 +25,8 @@ function run() {
   assert(html.includes('chat-search-input'), 'index.html must include chat-search-input');
   assert(html.includes('btn-model-picker'), 'index.html must include btn-model-picker');
   assert(html.includes('model-picker-sheet'), 'index.html must include model-picker-sheet');
+  assert(html.includes('model-effort-group'), 'index.html must include model-effort-group');
+  assert(html.includes('usage-modal-sheet'), 'index.html must include usage-modal-sheet');
   assert(html.includes('btn-voice'), 'index.html must include btn-voice');
   assert(html.includes('voice-recording-bar'), 'index.html must include voice-recording-bar');
 
@@ -49,11 +51,15 @@ function run() {
   assert(css.includes('search-highlight'), 'mobile.css should style search-highlight');
   assert(css.includes('model-picker-chip'), 'mobile.css should style model-picker-chip');
   assert(css.includes('model-picker-sheet'), 'mobile.css should style model-picker-sheet');
+  assert(css.includes('effort-segmented-control'), 'mobile.css should style effort-segmented-control');
+  assert(css.includes('usage-modal-sheet'), 'mobile.css should style usage-modal-sheet');
   assert(css.includes('voice-recording-bar'), 'mobile.css should style voice-recording-bar');
   assert(css.includes('voice-btn.recording') || css.includes('.voice-btn.recording'), 'mobile.css should style voice-btn recording state');
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('initModelPicker'), 'mobile.js should include initModelPicker');
+  assert(js.includes('setEffort'), 'mobile.js should include setEffort');
+  assert(js.includes('openUsageModal'), 'mobile.js should include openUsageModal');
   assert(js.includes('initVoiceRecognition'), 'mobile.js should include initVoiceRecognition');
   assert(js.includes('startVoiceRecording'), 'mobile.js should include startVoiceRecording');
   assert(js.includes('stopVoiceRecording'), 'mobile.js should include stopVoiceRecording');

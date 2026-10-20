@@ -36,6 +36,13 @@
   const modelPickerBackdrop = document.getElementById('model-picker-backdrop');
   const modelSheetList = document.getElementById('model-sheet-list');
   const btnViewUsage = document.getElementById('btn-view-usage');
+  const modelEffortGroup = document.getElementById('model-effort-group');
+
+  // Usage & Quotas Elements
+  const usageModalSheet = document.getElementById('usage-modal-sheet');
+  const usageModalBackdrop = document.getElementById('usage-modal-backdrop');
+  const usageSheetContent = document.getElementById('usage-sheet-content');
+  const btnCloseUsage = document.getElementById('btn-close-usage');
 
   // Voice Recording Elements
   const btnVoice = document.getElementById('btn-voice');
@@ -1432,9 +1439,14 @@
       };
       if (selectedModelObj && selectedModelObj.model) {
         sendPayload.model = selectedModelObj.model;
+        const budget = typeof selectedEffort !== 'undefined'
+          ? (selectedEffort === 'low' ? 1000 : (selectedEffort === 'mid' ? 4000 : -1))
+          : -1;
+        sendPayload.effort = typeof selectedEffort !== 'undefined' ? selectedEffort : 'high';
         sendPayload.plannerConfig = {
           planModel: selectedModelObj.model,
-          requestedModel: { model: selectedModelObj.model }
+          requestedModel: { model: selectedModelObj.model },
+          thinkingBudget: budget
         };
       }
 
@@ -2225,6 +2237,10 @@
   // ============================================================================
 
   const MODEL_STORAGE_KEY = 'agy_selected_model_id';
+  const EFFORT_STORAGE_KEY = 'agy_selected_effort';
+
+  let selectedEffort = localStorage.getItem(EFFORT_STORAGE_KEY) || 'high'; // 'low' | 'mid' | 'high'
+
   let availableModels = [
     {
       id: 'gemini-3.8-flash-high',
@@ -2282,14 +2298,61 @@
     return availableModels.find(m => m.id === selectedModelId) || availableModels[0];
   }
 
+  function getEffortLabel(effort) {
+    if (effort === 'low') return 'Low';
+    if (effort === 'mid') return 'Mid';
+    return 'High';
+  }
+
+  function updateEffortControlUI() {
+    if (!modelEffortGroup) return;
+    const buttons = modelEffortGroup.querySelectorAll('.effort-btn');
+    buttons.forEach(btn => {
+      if (btn.dataset.effort === selectedEffort) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  function setEffort(effort) {
+    selectedEffort = effort;
+    localStorage.setItem(EFFORT_STORAGE_KEY, selectedEffort);
+    updateEffortControlUI();
+
+    // Gemini 3.8 계열인 경우 모델 ID도 effort에 맞춰 자동 동기화
+    if (selectedModelId.startsWith('gemini-3.8-flash')) {
+      if (effort === 'low') {
+        selectedModelId = 'gemini-3.8-flash-low';
+      } else if (effort === 'mid') {
+        selectedModelId = 'gemini-3.8-flash-medium';
+      } else {
+        selectedModelId = 'gemini-3.8-flash-high';
+      }
+      localStorage.setItem(MODEL_STORAGE_KEY, selectedModelId);
+    }
+
+    updateModelChipDisplay();
+    renderModelList();
+  }
+
   function updateModelChipDisplay() {
     const current = getSelectedModel();
-    if (modelPickerName && current) {
+    if (!modelPickerName || !current) return;
+
+    const effortLabel = getEffortLabel(selectedEffort);
+    if (current.id.startsWith('gemini-3.8-flash')) {
+      modelPickerName.innerText = `Gemini 3.8 Flash ${effortLabel}`;
+    } else if (current.displayName.includes('Claude') || current.displayName.includes('GPT')) {
+      modelPickerName.innerText = `${current.displayName.replace(/ \(.*?\)/, '')} (${effortLabel})`;
+    } else {
       modelPickerName.innerText = current.chipLabel || `${current.displayName} ${current.subLabel || ''}`.trim();
     }
   }
 
   function openModelPicker() {
+    updateEffortControlUI();
     renderModelList();
     if (modelPickerSheet) modelPickerSheet.classList.add('visible');
     if (modelPickerBackdrop) modelPickerBackdrop.classList.add('visible');
@@ -2304,14 +2367,30 @@
     if (!modelSheetList) return;
     modelSheetList.innerHTML = '';
 
+    // Gemini 3.8 계열은 현재 선택된 effort 버전에 매칭
+    const currentActiveBase = selectedModelId.startsWith('gemini-3.8-flash')
+      ? 'gemini-3.8-flash'
+      : selectedModelId;
+
     availableModels.forEach(m => {
+      // Gemini 3.8 flash 하위 변종(low/medium)은 메인 목록에서 중복 표시하지 않고 하나로 통합 렌더링
+      if (m.id === 'gemini-3.8-flash-medium' || m.id === 'gemini-3.8-flash-low') {
+        return;
+      }
+
+      const isCurrentActive = m.id.startsWith('gemini-3.8-flash')
+        ? currentActiveBase === 'gemini-3.8-flash'
+        : m.id === selectedModelId;
+
       const itemEl = document.createElement('div');
-      itemEl.className = `model-item ${m.id === selectedModelId ? 'active' : ''} ${m.disabled ? 'disabled' : ''}`;
+      itemEl.className = `model-item ${isCurrentActive ? 'active' : ''} ${m.disabled ? 'disabled' : ''}`;
 
       let badgeHtml = '';
-      if (m.subLabel) {
-        if (m.subLabel === 'High') {
-          badgeHtml = `<span class="model-item-sub">High</span>`;
+      if (m.id.startsWith('gemini-3.8-flash')) {
+        badgeHtml = `<span class="model-item-sub">${getEffortLabel(selectedEffort)}</span>`;
+      } else if (m.subLabel) {
+        if (m.subLabel === 'High' || m.subLabel === 'Medium' || m.subLabel === 'Low') {
+          badgeHtml = `<span class="model-item-sub">${escapeHtml(m.subLabel)}</span>`;
         } else {
           badgeHtml = `<span class="model-item-badge">${escapeHtml(m.subLabel)}</span>`;
         }
@@ -2319,7 +2398,7 @@
 
       itemEl.innerHTML = `
         <div class="model-item-main">
-          <span class="model-item-name">${escapeHtml(m.displayName)}</span>
+          <span class="model-item-name">${escapeHtml(m.displayName.replace(/ \((High|Medium|Low)\)/, ''))}</span>
           ${badgeHtml}
         </div>
         <div class="model-item-actions">
@@ -2334,7 +2413,17 @@
 
       if (!m.disabled) {
         itemEl.addEventListener('click', () => {
-          selectedModelId = m.id;
+          if (m.id.startsWith('gemini-3.8-flash')) {
+            if (selectedEffort === 'low') {
+              selectedModelId = 'gemini-3.8-flash-low';
+            } else if (selectedEffort === 'mid') {
+              selectedModelId = 'gemini-3.8-flash-medium';
+            } else {
+              selectedModelId = 'gemini-3.8-flash-high';
+            }
+          } else {
+            selectedModelId = m.id;
+          }
           localStorage.setItem(MODEL_STORAGE_KEY, selectedModelId);
           updateModelChipDisplay();
           renderModelList();
@@ -2366,7 +2455,9 @@
   }
 
   function initModelPicker() {
+    updateEffortControlUI();
     updateModelChipDisplay();
+
     if (btnModelPicker) {
       btnModelPicker.addEventListener('click', openModelPicker);
     }
@@ -2377,13 +2468,149 @@
     if (handle) {
       handle.addEventListener('click', closeModelPicker);
     }
-    if (btnViewUsage) {
-      btnViewUsage.addEventListener('click', () => {
-        alert('모델 사용량: 현재 플랜에서 세션당 쿼터가 정상 활성화되어 있습니다.');
-        closeModelPicker();
+
+    if (modelEffortGroup) {
+      modelEffortGroup.addEventListener('click', (e) => {
+        const btn = e.target.closest('.effort-btn');
+        if (btn && btn.dataset.effort) {
+          setEffort(btn.dataset.effort);
+        }
       });
     }
+
+    if (btnViewUsage) {
+      btnViewUsage.addEventListener('click', () => {
+        openUsageModal();
+      });
+    }
+
+    initUsageModal();
     fetchServerModels();
+  }
+
+  // ============================================================================
+  // Plan Usage & Quotas Bottom Sheet Modal Logic
+  // ============================================================================
+
+  function openUsageModal() {
+    closeModelPicker();
+    if (usageModalSheet) usageModalSheet.classList.add('visible');
+    if (usageModalBackdrop) usageModalBackdrop.classList.add('visible');
+    loadUsageData();
+  }
+
+  function closeUsageModal() {
+    if (usageModalSheet) usageModalSheet.classList.remove('visible');
+    if (usageModalBackdrop) usageModalBackdrop.classList.remove('visible');
+  }
+
+  async function loadUsageData() {
+    if (!usageSheetContent) return;
+    usageSheetContent.innerHTML = `
+      <div style="padding: 24px 0; text-align: center; color: #9aa0a6;">
+        <div class="thinking-spinner" style="margin: 0 auto 10px auto;"></div>
+        <div>사용량 및 할당량 정보를 조회하는 중...</div>
+      </div>
+    `;
+
+    try {
+      const res = await fetch('/api/usage');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderUsageContent(data);
+    } catch (err) {
+      usageSheetContent.innerHTML = `
+        <div style="padding: 20px 10px; text-align: center; color: #f28b82;">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px;">사용량 정보를 불러오지 못했습니다.</div>
+          <div style="font-size: 12px; color: #9aa0a6; margin-bottom: 14px;">${escapeHtml(err.message)}</div>
+          <button class="usage-refresh-btn" id="btn-retry-usage">다시 시도</button>
+        </div>
+      `;
+      const retryBtn = document.getElementById('btn-retry-usage');
+      if (retryBtn) retryBtn.addEventListener('click', loadUsageData);
+    }
+  }
+
+  function renderUsageContent(data) {
+    if (!usageSheetContent) return;
+    const groups = data.groups || [];
+
+    if (groups.length === 0) {
+      usageSheetContent.innerHTML = '<div style="padding: 20px; text-align: center; color: #9aa0a6;">사용량 데이터가 없습니다.</div>';
+      return;
+    }
+
+    let html = '';
+    groups.forEach(group => {
+      html += `
+        <div class="usage-group-card">
+          <div class="usage-group-header">
+            <span class="usage-group-title">${escapeHtml(group.displayName)}</span>
+            <span class="usage-group-desc">${escapeHtml(group.description || '')}</span>
+          </div>
+      `;
+
+      const buckets = group.buckets || [];
+      buckets.forEach(bucket => {
+        const rawFraction = typeof bucket.remainingFraction === 'number' ? bucket.remainingFraction : 1;
+        const percent = Math.max(0, Math.min(100, Math.round(rawFraction * 100)));
+        const levelClass = percent >= 50 ? 'high' : (percent >= 20 ? 'mid' : 'low');
+
+        html += `
+          <div class="usage-bucket-item">
+            <div class="usage-bucket-row">
+              <span class="usage-bucket-name">${escapeHtml(bucket.displayName)}</span>
+              <span class="usage-bucket-percent ${levelClass}">${percent}% 남음</span>
+            </div>
+            <div class="usage-bar-track">
+              <div class="usage-bar-fill ${levelClass}" style="width: ${percent}%;"></div>
+            </div>
+            <div class="usage-bucket-desc">${escapeHtml(bucket.description || '')}</div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    });
+
+    if (data.description) {
+      html += `
+        <div class="usage-policy-box">
+          <div class="usage-policy-text">${escapeHtml(data.description)}</div>
+        </div>
+      `;
+    }
+
+    html += `
+      <div class="usage-refresh-btn-wrap">
+        <button class="usage-refresh-btn" id="btn-refresh-usage">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          <span>새로고침</span>
+        </button>
+      </div>
+    `;
+
+    usageSheetContent.innerHTML = html;
+
+    const refreshBtn = document.getElementById('btn-refresh-usage');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadUsageData);
+  }
+
+  function initUsageModal() {
+    if (btnCloseUsage) {
+      btnCloseUsage.addEventListener('click', closeUsageModal);
+    }
+    if (usageModalBackdrop) {
+      usageModalBackdrop.addEventListener('click', closeUsageModal);
+    }
+    const handle = usageModalSheet ? usageModalSheet.querySelector('.sheet-drag-handle') : null;
+    if (handle) {
+      handle.addEventListener('click', closeUsageModal);
+    }
   }
 
   // --- Voice Recognition ---

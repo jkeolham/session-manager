@@ -259,6 +259,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(200, resp)
             except Exception as e:
                 self._reply(500, {"error": str(e)})
+        elif path == "/usage":
+            try:
+                resp = ls_rpc("RetrieveUserQuotaSummary", {})
+                self._reply(200, resp)
+            except Exception as e:
+                self._reply(500, {"error": str(e)})
         else:
             self._reply(404, {"error": "not found"})
 
