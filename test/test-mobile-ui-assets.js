@@ -41,6 +41,7 @@ function run() {
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('btn-toggle-tools'), 'mobile.js should include tool toggle logic');
+  assert(js.includes('btn-google-web'), 'mobile.js should bind current session url to google web button');
   assert(js.includes('minAllowedTop'), 'mobile.js should clamp composer top position');
   assert(js.includes('renderQueuedMessages'), 'mobile.js should render queued messages');
   assert(js.includes('btn-queue-up'), 'mobile.js should handle queue reordering');

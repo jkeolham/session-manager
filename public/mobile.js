@@ -399,17 +399,23 @@
     headerBadge.innerText = (session.type || 'active').toUpperCase();
     headerBadge.className = `badge ${session.type || ''}`;
 
-    // Update Google Web Remote Link
+    // Update Google Web Remote Link with current session conversation URL
     const btnGoogleWeb = document.getElementById('btn-google-web');
     if (btnGoogleWeb) {
-      if (session.cid) {
-        btnGoogleWeb.href = 'https://antigravity.google.com';
+      const targetCid = session.cid || (session.name && session.name.startsWith('rc_') ? session.name.slice(3) : null);
+      if (targetCid) {
+        // 즉시 현재 세션 대화 주소 바인딩 (대기 없이 바로 해당 세션으로 열림)
+        btnGoogleWeb.href = `https://antigravity.google.com/c/${targetCid}`;
+        btnGoogleWeb.title = `antigravity.google.com/c/${targetCid} 대시보드 열기`;
         btnGoogleWeb.style.display = 'inline-flex';
-        fetch(`/api/remote-url?cid=${encodeURIComponent(session.cid)}`)
+
+        // 혹시 8자리 접두사 형태라면 서버에서 풀 36자리 UUID로 정밀 보정
+        fetch(`/api/remote-url?cid=${encodeURIComponent(targetCid)}`)
           .then(r => r.json())
           .then(d => {
             if (d && d.url) {
               btnGoogleWeb.href = d.url;
+              if (d.cid) btnGoogleWeb.title = `antigravity.google.com/c/${d.cid} 대시보드 열기`;
             }
           })
           .catch(() => {});
@@ -1399,6 +1405,19 @@
   sessionSearchInput.addEventListener('input', (e) => {
     renderSessionList(e.target.value);
   });
+
+  const btnGoogleWebEl = document.getElementById('btn-google-web');
+  if (btnGoogleWebEl) {
+    btnGoogleWebEl.addEventListener('click', (e) => {
+      const cid = currentSession ? (currentSession.cid || (currentSession.name && currentSession.name.startsWith('rc_') ? currentSession.name.slice(3) : '')) : '';
+      if (cid) {
+        const fullUrl = `https://antigravity.google.com/c/${cid}`;
+        btnGoogleWebEl.href = fullUrl;
+        window.open(fullUrl, '_blank', 'noopener,noreferrer');
+        e.preventDefault();
+      }
+    });
+  }
 
   let isComposing = false;
   composerInput.addEventListener('compositionstart', () => {

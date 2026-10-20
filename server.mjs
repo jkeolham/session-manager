@@ -409,6 +409,12 @@ export function createServer(options = {}) {
 
         sendEvent('connected', { cid, session, timestamp: Date.now() });
 
+        // Emit relay-url with canonical dashboard URL for this conversation
+        const resolvedCid = (cid && cid.length > 10) ? cid : findFullCidByPrefix(cid || (session ? session.replace(/^(rc_|agy_)/, '') : null));
+        if (resolvedCid) {
+          sendEvent('relay-url', { cid: resolvedCid, url: dashboardUrlForConversation(resolvedCid) });
+        }
+
         // Heartbeat ping every 25 seconds
         const pingInterval = setInterval(() => {
           sendEvent('ping', { timestamp: Date.now() });
