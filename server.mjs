@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -567,6 +567,32 @@ export function createServer(options = {}) {
             }
             const result = await daemonBridge.newConversation(text, data.title, data.model);
             sendJson(res, 200, { ok: true, bridge: 'daemon', result });
+          } catch (err) {
+            sendError(res, 503, err.message);
+          }
+        });
+        return;
+      }
+
+      // 5.2 POST /api/delete — permanently delete a daemon conversation
+      if (req.method === 'POST' && pathname === '/api/delete') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          if (body.length > 64 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const cid = String(JSON.parse(body || '{}').cid || '');
+            if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(cid)) {
+              sendError(res, 400, 'Missing full conversation id');
+              return;
+            }
+            // The daemon delete is what removes it from the dashboard; only then
+            // clear leftover files the session list is built from.
+            await daemonBridge.deleteConversation(cid);
+            execFileSync('python3', [path.join(__dirname, 'delete-session.py'), cid], { timeout: 10000 });
+            sendJson(res, 200, { ok: true, cid });
           } catch (err) {
             sendError(res, 503, err.message);
           }

@@ -192,6 +192,7 @@
               ${subName ? `<div class="session-item-title">${escapeHtml(subName)}</div>` : ''}
             </div>
             <span class="badge ${cat.badgeClass}">${cat.label.split(' ')[0]}</span>
+            ${cat.key === 'agy' && item.cid ? `<button class="session-delete-btn" type="button" aria-label="대화 삭제" title="대화 삭제">🗑</button>` : ''}
           </div>
         `;
       });
@@ -206,6 +207,12 @@
     sessionListEl.innerHTML = html;
 
     // Attach click listeners
+    sessionListEl.querySelectorAll('.session-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSession(JSON.parse(btn.closest('.session-item').getAttribute('data-session')));
+      });
+    });
     sessionListEl.querySelectorAll('.session-item').forEach(el => {
       el.addEventListener('click', () => {
         const dataStr = el.getAttribute('data-session');
@@ -216,6 +223,29 @@
         }
       });
     });
+  }
+
+  // Permanent: removes the conversation from the daemon and antigravity.google.com too.
+  async function deleteSession(session) {
+    const label = `${session.title || session.name} [${session.cid.slice(0, 8)}]`;
+    if (!confirm(`"${label}" 대화를 영구 삭제합니다.\n대시보드에서도 사라지며 되돌릴 수 없습니다. 계속할까요?`)) return;
+    try {
+      const res = await fetch('/api/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cid: session.cid })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (currentSession && currentSession.cid === session.cid) {
+        currentSession = null;
+        localStorage.removeItem('active_session');
+        chatHistory.innerHTML = '<div class="empty-state"><p>삭제된 대화입니다. 목록에서 다른 세션을 선택하세요.</p></div>';
+      }
+      await fetchSessions();
+    } catch (err) {
+      alert(`삭제 실패: ${err.message}`);
+    }
   }
 
   // --- Select & Load Session ---

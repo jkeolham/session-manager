@@ -20,6 +20,7 @@ tool shell of any daemon conversation, and then serves the session manager.
                        GET  /health
                        POST /send-user {"cid": "...", "text": "...", "plannerConfig": {...}?}
                        POST /new       {"text": "...", "title": "...", "model": "..."}
+                       POST /delete    {"cid": "..."}   (permanent)
                      Publishes only its port (data/endpoint.json). The token
                      stays in memory; logs record variable names, never values.
 
@@ -98,10 +99,19 @@ def send_user(cid, text, planner=None):
     if not planner:
         model = last_model(cid)
         planner = {"planModel": model, "requestedModel": {"model": model}}
-    body = {"cascadeId": cid, "items": [{"text": text}], "cascadeConfig": {"plannerConfig": planner}}
+    return ls_rpc("SendUserCascadeMessage",
+                  {"cascadeId": cid, "items": [{"text": text}], "cascadeConfig": {"plannerConfig": planner}})
+
+
+def delete_conversation(cid):
+    """DeleteCascadeTrajectory on the daemon LS — what the dashboard's delete does."""
+    return ls_rpc("DeleteCascadeTrajectory", {"cascadeId": cid})
+
+
+def ls_rpc(method, body):
     host = LS_ADDRESS if "://" in LS_ADDRESS else f"http://{LS_ADDRESS}"
     req = urllib.request.Request(
-        f"{host}/{LS_SERVICE}/SendUserCascadeMessage",
+        f"{host}/{LS_SERVICE}/{method}",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "x-codeium-csrf-token": CSRF_TOKEN},
         method="POST",
@@ -258,6 +268,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(400, {"error": "a full conversation id and text are required"})
                 return
             result = send_user(cid, text, data.get("plannerConfig"))
+        elif path == "/delete":
+            cid = (data.get("cid") or "").strip()
+            if not CID_RE.match(cid):
+                self._reply(400, {"error": "a full conversation id is required"})
+                return
+            result = delete_conversation(cid)
         elif path == "/new":
             if not text:
                 self._reply(400, {"error": "text is required"})

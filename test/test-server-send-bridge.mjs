@@ -46,3 +46,34 @@ test('/api/send routes Antigravity conversations through the daemon bridge only'
     await new Promise(resolve => app.close(resolve));
   }
 });
+
+test('/api/delete deletes through the daemon bridge and rejects partial ids', async () => {
+  const port = 8796;
+  const app = await createServer({ port, bindHost: '127.0.0.1' });
+  const original = daemonBridge.deleteConversation;
+  const post = (body) => fetch(`http://127.0.0.1:${port}/api/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  try {
+    let deleted = null;
+    daemonBridge.deleteConversation = async (cid) => { deleted = cid; return {}; };
+
+    assert.strictEqual((await post({ cid: 'e40880a6' })).status, 400);
+    assert.strictEqual(deleted, null);
+
+    const cid = '11111111-2222-3333-4444-555555555555'; // no such conversation on disk
+    const ok = await post({ cid });
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(deleted, cid);
+
+    daemonBridge.deleteConversation = async () => { throw new Error('bridge not running'); };
+    const down = await post({ cid });
+    assert.strictEqual(down.status, 503);
+  } finally {
+    daemonBridge.deleteConversation = original;
+    await new Promise(resolve => app.close(resolve));
+  }
+});

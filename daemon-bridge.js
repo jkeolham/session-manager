@@ -72,4 +72,9 @@ async function newConversation(text, title, model) {
   return request('POST', '/new', { text, title, model }, 300000);
 }
 
-module.exports = { isAvailable, sendPrompt, newConversation, BOOTSTRAP_HINT };
+// Permanently deletes a daemon conversation, like the dashboard's delete.
+async function deleteConversation(cid) {
+  return request('POST', '/delete', { cid });
+}
+
+module.exports = { isAvailable, sendPrompt, newConversation, deleteConversation, BOOTSTRAP_HINT };
