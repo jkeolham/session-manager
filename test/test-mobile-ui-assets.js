@@ -18,6 +18,7 @@ function run() {
   assert(html.includes('drawer'), 'index.html must include drawer for sessions');
   assert(html.includes('chat-container'), 'index.html must include chat container');
   assert(html.includes('composer'), 'index.html must include message composer');
+  assert(html.includes('queued-messages-container'), 'index.html must include queued-messages-container');
   assert(html.includes('review-modal'), 'index.html must include review-modal');
   assert(html.includes('pull-refresh-indicator'), 'index.html must include pull-refresh-indicator');
 
@@ -33,11 +34,17 @@ function run() {
   assert(css.includes('session-status-dot'), 'mobile.css should style session-status-dot');
   assert(css.includes('session-status-time'), 'mobile.css should style session-status-time');
   assert(css.includes('btn-toggle-tools'), 'mobile.css should style btn-toggle-tools');
+  assert(css.includes('queued-card'), 'mobile.css should style queued-card');
+  assert(css.includes('btn-queue-order'), 'mobile.css should style btn-queue-order');
+  assert(css.includes('keyboard-active'), 'mobile.css should handle keyboard-active');
   assert(css.includes('review-modal'), 'mobile.css should style review-modal');
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('btn-toggle-tools'), 'mobile.js should include tool toggle logic');
   assert(js.includes('minAllowedTop'), 'mobile.js should clamp composer top position');
+  assert(js.includes('renderQueuedMessages'), 'mobile.js should render queued messages');
+  assert(js.includes('btn-queue-up'), 'mobile.js should handle queue reordering');
+  assert(js.includes('checkAndProcessQueue'), 'mobile.js should support auto-dequeue');
   assert(js.includes('EventSource'), 'mobile.js should subscribe via EventSource');
   assert(js.includes('/api/sessions'), 'mobile.js should fetch sessions');
   assert(js.includes('/api/send'), 'mobile.js should post messages');

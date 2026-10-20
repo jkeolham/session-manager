@@ -421,6 +421,7 @@
     // Show Chat, Hide Empty State
     emptyState.style.display = 'none';
     chatHistory.innerHTML = '<div class="loading-spinner">대화 내역을 불러오는 중...</div>';
+    renderQueuedMessages();
 
     // Disconnect old SSE
     if (activeEventSource) {
@@ -461,6 +462,8 @@
 
     // Connect SSE stream
     connectStream(cid, sessionName);
+    renderQueuedMessages();
+    checkAndProcessQueue();
   }
 
   function groupTurnsForDisplay(rawTurns) {
@@ -844,6 +847,7 @@
       console.warn('Sync active session error:', err);
     } finally {
       isSyncingSession = false;
+      checkAndProcessQueue();
     }
 
     // Reconnect SSE if requested or if dead
@@ -916,11 +920,17 @@
             prevTurn.timestamp = turn.timestamp || prevTurn.timestamp;
             updateAssistantTurnElement(lastMsg, prevTurn);
             scrollToBottom();
+            if (prevTurn.content) {
+              checkAndProcessQueue();
+            }
             return;
           }
         }
 
         appendTurn(turn);
+        if (turn.role === 'assistant' && turn.content) {
+          checkAndProcessQueue();
+        }
       } catch (err) {
         console.error('Failed to parse turn event:', err);
       }
@@ -1051,6 +1061,191 @@
     });
   }
 
+  // --- Message Queue (대기열) System ---
+
+  const queuedContainer = document.getElementById('queued-messages-container');
+
+  function getActiveQueue() {
+    const cid = currentSession ? (currentSession.cid || currentSession.name || 'default') : 'default';
+    try {
+      const raw = localStorage.getItem('sm_queue_' + cid);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveActiveQueue(queue) {
+    const cid = currentSession ? (currentSession.cid || currentSession.name || 'default') : 'default';
+    try {
+      if (queue && queue.length > 0) {
+        localStorage.setItem('sm_queue_' + cid, JSON.stringify(queue));
+      } else {
+        localStorage.removeItem('sm_queue_' + cid);
+      }
+    } catch (e) {}
+  }
+
+  function isSessionBusy() {
+    if (isSending) return true;
+    if (chatHistory && chatHistory.querySelector('.typing-msg')) return true;
+    if (currentSession && (currentSession.isRunning || currentSession.status === 'CASCADE_RUN_STATUS_RUNNING')) return true;
+    const lastMsg = chatHistory ? chatHistory.querySelector('.message.assistant:last-child') : null;
+    if (lastMsg && lastMsg.__turnData && !lastMsg.__turnData.content) return true;
+    return false;
+  }
+
+  function renderQueuedMessages() {
+    if (!queuedContainer) return;
+    const queue = getActiveQueue();
+    if (!queue || queue.length === 0) {
+      queuedContainer.style.display = 'none';
+      queuedContainer.innerHTML = '';
+      return;
+    }
+
+    queuedContainer.style.display = 'flex';
+    const total = queue.length;
+    queuedContainer.innerHTML = queue.map((item, idx) => {
+      const timeStr = item.timeStr || (item.createdAt ? formatMessageTime(new Date(item.createdAt).toISOString()) : '방금');
+      const attachInfo = item.attachments && item.attachments.length > 0
+        ? `<div class="queued-attachments">📎 첨부파일 ${item.attachments.length}개 (${escapeHtml(item.attachments.map(a => a.name).join(', '))})</div>`
+        : '';
+      return `
+        <div class="queued-card" data-qid="${item.id}">
+          <div class="queued-card-header">
+            <div class="queued-badge-wrap">
+              <span class="queued-badge">대기 중 ${idx + 1}/${total}</span>
+              <span class="queued-time">${escapeHtml(timeStr)}</span>
+            </div>
+            ${total > 1 ? `
+              <div class="queued-reorder-actions">
+                <button type="button" class="btn-queue-order btn-queue-up" data-idx="${idx}" title="위로 이동" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                <button type="button" class="btn-queue-order btn-queue-down" data-idx="${idx}" title="아래로 이동" ${idx === total - 1 ? 'disabled' : ''}>▼</button>
+              </div>
+            ` : ''}
+          </div>
+          <div class="queued-card-body">
+            <div class="queued-text">${escapeHtml(item.text)}</div>
+            ${attachInfo}
+          </div>
+          <div class="queued-card-actions">
+            <button type="button" class="btn-queue-action btn-queue-send" data-idx="${idx}" title="현재 대기 없이 바로 보내기">
+              ⚡ 바로 보내기
+            </button>
+            <button type="button" class="btn-queue-action btn-queue-edit" data-idx="${idx}" title="입력창으로 불러와 수정">
+              ✏️ 수정
+            </button>
+            <button type="button" class="btn-queue-action btn-queue-discard" data-idx="${idx}" title="대기열에서 삭제">
+              🗑️ 폐기
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (queuedContainer) {
+    queuedContainer.addEventListener('click', (e) => {
+      const queue = getActiveQueue();
+      if (!queue || queue.length === 0) return;
+
+      // 1. 위로 이동
+      const upBtn = e.target.closest('.btn-queue-up');
+      if (upBtn) {
+        e.stopPropagation();
+        const idx = parseInt(upBtn.getAttribute('data-idx'), 10);
+        if (idx > 0 && idx < queue.length) {
+          const temp = queue[idx - 1];
+          queue[idx - 1] = queue[idx];
+          queue[idx] = temp;
+          saveActiveQueue(queue);
+          renderQueuedMessages();
+        }
+        return;
+      }
+
+      // 2. 아래로 이동
+      const downBtn = e.target.closest('.btn-queue-down');
+      if (downBtn) {
+        e.stopPropagation();
+        const idx = parseInt(downBtn.getAttribute('data-idx'), 10);
+        if (idx >= 0 && idx < queue.length - 1) {
+          const temp = queue[idx + 1];
+          queue[idx + 1] = queue[idx];
+          queue[idx] = temp;
+          saveActiveQueue(queue);
+          renderQueuedMessages();
+        }
+        return;
+      }
+
+      // 3. 바로 보내기
+      const sendBtn = e.target.closest('.btn-queue-send');
+      if (sendBtn) {
+        e.stopPropagation();
+        const idx = parseInt(sendBtn.getAttribute('data-idx'), 10);
+        if (idx >= 0 && idx < queue.length) {
+          const item = queue.splice(idx, 1)[0];
+          saveActiveQueue(queue);
+          renderQueuedMessages();
+          executeDirectSend(item.text, item.attachments || []);
+        }
+        return;
+      }
+
+      // 4. 수정하기
+      const editBtn = e.target.closest('.btn-queue-edit');
+      if (editBtn) {
+        e.stopPropagation();
+        const idx = parseInt(editBtn.getAttribute('data-idx'), 10);
+        if (idx >= 0 && idx < queue.length) {
+          const item = queue.splice(idx, 1)[0];
+          saveActiveQueue(queue);
+          renderQueuedMessages();
+          composerInput.value = item.text || '';
+          composerInput.style.height = 'auto';
+          composerInput.style.height = `${Math.min(composerInput.scrollHeight, 160)}px`;
+          pendingAttachments = (item.attachments || []).map(a => ({
+            name: a.name,
+            type: a.type,
+            dataUrl: a.dataUrl || a.url
+          }));
+          renderAttachmentPreviews();
+          updateSendButtonState();
+          composerInput.focus();
+        }
+        return;
+      }
+
+      // 5. 폐기하기
+      const discardBtn = e.target.closest('.btn-queue-discard');
+      if (discardBtn) {
+        e.stopPropagation();
+        const idx = parseInt(discardBtn.getAttribute('data-idx'), 10);
+        if (idx >= 0 && idx < queue.length) {
+          queue.splice(idx, 1);
+          saveActiveQueue(queue);
+          renderQueuedMessages();
+        }
+        return;
+      }
+    });
+  }
+
+  function checkAndProcessQueue() {
+    if (!currentSession || isSending || isSessionBusy()) return;
+    const queue = getActiveQueue();
+    if (queue && queue.length > 0) {
+      const nextItem = queue.shift();
+      saveActiveQueue(queue);
+      renderQueuedMessages();
+      setTimeout(() => {
+        executeDirectSend(nextItem.text, nextItem.attachments || []);
+      }, 300);
+    }
+  }
+
   // --- Send Message ---
 
   let isSending = false;
@@ -1061,6 +1256,37 @@
     const hasAttachments = pendingAttachments.length > 0;
     if ((!text && !hasAttachments) || !currentSession) return;
 
+    // 만약 에이전트가 생각 중이거나 작업 중이면 대기열(Queue)에 등록
+    if (isSessionBusy()) {
+      const queue = getActiveQueue();
+      queue.push({
+        id: 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        text: text,
+        attachments: [...pendingAttachments],
+        createdAt: Date.now(),
+        timeStr: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+      });
+      saveActiveQueue(queue);
+      composerInput.value = '';
+      composerInput.style.height = 'auto';
+      pendingAttachments = [];
+      renderAttachmentPreviews();
+      updateSendButtonState();
+      renderQueuedMessages();
+      return;
+    }
+
+    const attachmentsToUpload = [...pendingAttachments];
+    pendingAttachments = [];
+    renderAttachmentPreviews();
+    composerInput.value = '';
+    composerInput.style.height = 'auto';
+
+    await executeDirectSend(text, attachmentsToUpload);
+  }
+
+  async function executeDirectSend(text, attachmentsToUpload = []) {
+    if (isSending || !currentSession) return;
     isSending = true;
     btnSend.disabled = true;
     composerInput.disabled = true;
@@ -1070,19 +1296,15 @@
     const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
     const isTerminalActive = !!document.getElementById('terminalScreen');
 
-    const attachmentsToUpload = [...pendingAttachments];
-    pendingAttachments = [];
-    renderAttachmentPreviews();
-
     // Optimistic user turn if in chat turn mode
     if (!isTerminalActive) {
       appendTurn({
         role: 'user',
         content: text,
-        attachments: attachmentsToUpload.map(a => ({
+        attachments: (attachmentsToUpload || []).map(a => ({
           name: a.name,
           type: a.type,
-          url: a.dataUrl
+          url: a.dataUrl || a.url
         })),
         timestamp: new Date().toISOString()
       });
@@ -1106,12 +1328,9 @@
       scrollToBottom();
     }
 
-    composerInput.value = '';
-    composerInput.style.height = 'auto';
-
     try {
       let uploadedFiles = [];
-      if (attachmentsToUpload.length > 0) {
+      if (attachmentsToUpload && attachmentsToUpload.length > 0) {
         const uploadRes = await fetch('/api/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1119,7 +1338,7 @@
             files: attachmentsToUpload.map(a => ({
               name: a.name,
               type: a.type,
-              data: a.dataUrl
+              data: a.dataUrl || a.url
             })),
             session: sessionName,
             cid: cid
@@ -1159,6 +1378,7 @@
       updateSendButtonState();
       composerInput.focus();
       scrollToBottom(true);
+      checkAndProcessQueue();
     }
   }
 
@@ -1220,20 +1440,22 @@
       const viewportBottom = vv.height + (vv.offsetTop || 0);
 
       // 3. 브라우저가 레이아웃을 줄이지 않아 키보드에 가려진 실제 오버랩(overlap)만 계산
-      // dvh 또는 interactive-widget에 의해 브라우저가 이미 레이아웃을 줄였다면 rect.bottom <= viewportBottom 이므로 overlap은 0이 됨
+      // 키보드 상단 윗선에 빈 공간(여백) 없이 0px 오차로 완벽 밀착
       const overlap = Math.max(0, Math.round(rect.bottom - viewportBottom));
 
-      // 4. 상한선(Clamp): 사용자의 요청대로 채팅창이 화면 상단으로 치솟지 않도록
-      // 화면 상단 40% 영역(top < 40% of screenH)으로는 올라가지 못하게 maxAllowedOffset 제한
-      const screenH = window.innerHeight || document.documentElement.clientHeight || 800;
-      const minAllowedTop = Math.round(screenH * 0.4);
+      // 4. 상단 헤더 아래 안전선(Clamp): 최소 top 좌표를 상단 헤더 바로 아래로 제한하여 주소창 침범 방지
+      const headerEl = document.getElementById('header');
+      const headerH = headerEl ? headerEl.offsetHeight : 56;
+      const minAllowedTop = headerH + 8;
       const maxAllowedOffset = Math.max(0, Math.round(rect.top - minAllowedTop));
       const finalOffset = Math.min(overlap, maxAllowedOffset);
 
       if (finalOffset > 0) {
         composer.style.transform = `translateY(-${finalOffset}px)`;
+        composer.classList.add('keyboard-active');
       } else {
         composer.style.transform = 'none';
+        composer.classList.remove('keyboard-active');
       }
 
       if (chatContainer) {
