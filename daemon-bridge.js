@@ -217,6 +217,7 @@ const FALLBACK_USAGE = {
 };
 
 async function getUserUsageSummary() {
+  // 1차 시도: bridge REST API GET /usage
   try {
     const res = await request('GET', '/usage', null, 3000);
     const groups = res?.response?.groups;
@@ -228,8 +229,57 @@ async function getUserUsageSummary() {
       };
     }
   } catch (e) {
-    // fallback
+    // fallback to direct RPC
   }
+
+  // 2차 시도: bridge 환경정보로 LS에 직접 RPC 호출 (bridge가 구버전이어서 /usage를 404 처리하는 경우 대비)
+  try {
+    const endpointRaw = fs.readFileSync(ENDPOINT_FILE, 'utf-8');
+    const endpointData = JSON.parse(endpointRaw);
+    const lsAddress = endpointData.ls;
+    if (!lsAddress) throw new Error('no ls address');
+
+    // bridge 프로세스 환경변수에서 CSRF 토큰 및 LS 주소 읽기
+    let csrfToken = '';
+    const bridgePid = endpointData.pid;
+    if (bridgePid) {
+      try {
+        const environ = fs.readFileSync(`/proc/${bridgePid}/environ`, 'utf-8');
+        const envPairs = environ.split('\0');
+        for (const pair of envPairs) {
+          if (pair.startsWith('ANTIGRAVITY_CSRF_TOKEN=')) {
+            csrfToken = pair.slice('ANTIGRAVITY_CSRF_TOKEN='.length);
+          }
+        }
+      } catch (e) { /* /proc 읽기 실패 무시 */ }
+    }
+
+    if (!csrfToken) throw new Error('no csrf token');
+
+    const LS_SERVICE = 'exa.language_server_pb.LanguageServerService';
+    const host = lsAddress.includes('://') ? lsAddress : `http://${lsAddress}`;
+    const rpcRes = await fetch(`${host}/${LS_SERVICE}/RetrieveUserQuotaSummary`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-codeium-csrf-token': csrfToken
+      },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(5000)
+    });
+    const rpcJson = await rpcRes.json();
+    const groups = rpcJson?.response?.groups;
+    if (Array.isArray(groups) && groups.length > 0) {
+      return {
+        ok: true,
+        groups: groups,
+        description: rpcJson.response.description || ''
+      };
+    }
+  } catch (e) {
+    // final fallback
+  }
+
   return FALLBACK_USAGE;
 }
 
