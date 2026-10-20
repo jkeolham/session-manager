@@ -1208,13 +1208,36 @@
   // Soft keyboard positioning with visualViewport API
   if (window.visualViewport) {
     const onViewportResize = () => {
-      const offset = Math.max(0, window.innerHeight - window.visualViewport.height);
       const composer = document.getElementById('composer');
-      if (composer) {
-        composer.style.transform = offset > 0 ? `translateY(-${offset}px)` : 'none';
+      if (!composer) return;
+
+      const vv = window.visualViewport;
+      // 1. 임시로 transform을 해제하여 CSS 기본 레이아웃 상의 바닥 좌표 측정
+      composer.style.transform = 'none';
+      const rect = composer.getBoundingClientRect();
+
+      // 2. 가시 뷰포트의 실제 바닥 좌표 (visualViewport 높이 + 상단 오프셋)
+      const viewportBottom = vv.height + (vv.offsetTop || 0);
+
+      // 3. 브라우저가 레이아웃을 줄이지 않아 키보드에 가려진 실제 오버랩(overlap)만 계산
+      // dvh 또는 interactive-widget에 의해 브라우저가 이미 레이아웃을 줄였다면 rect.bottom <= viewportBottom 이므로 overlap은 0이 됨
+      const overlap = Math.max(0, Math.round(rect.bottom - viewportBottom));
+
+      // 4. 상한선(Clamp): 사용자의 요청대로 채팅창이 화면 상단으로 치솟지 않도록
+      // 화면 상단 40% 영역(top < 40% of screenH)으로는 올라가지 못하게 maxAllowedOffset 제한
+      const screenH = window.innerHeight || document.documentElement.clientHeight || 800;
+      const minAllowedTop = Math.round(screenH * 0.4);
+      const maxAllowedOffset = Math.max(0, Math.round(rect.top - minAllowedTop));
+      const finalOffset = Math.min(overlap, maxAllowedOffset);
+
+      if (finalOffset > 0) {
+        composer.style.transform = `translateY(-${finalOffset}px)`;
+      } else {
+        composer.style.transform = 'none';
       }
+
       if (chatContainer) {
-        chatContainer.style.paddingBottom = offset > 0 ? `${offset + 16}px` : '16px';
+        chatContainer.style.paddingBottom = finalOffset > 0 ? `${finalOffset + 16}px` : '16px';
       }
       scrollToBottom(true);
     };

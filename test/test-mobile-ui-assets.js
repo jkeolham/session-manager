@@ -14,6 +14,7 @@ function run() {
 
   const html = fs.readFileSync(htmlPath, 'utf8');
   assert(html.includes('viewport'), 'index.html must include viewport meta tag');
+  assert(html.includes('interactive-widget=resizes-content'), 'index.html should specify interactive-widget=resizes-content');
   assert(html.includes('drawer'), 'index.html must include drawer for sessions');
   assert(html.includes('chat-container'), 'index.html must include chat container');
   assert(html.includes('composer'), 'index.html must include message composer');
@@ -36,6 +37,7 @@ function run() {
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('btn-toggle-tools'), 'mobile.js should include tool toggle logic');
+  assert(js.includes('minAllowedTop'), 'mobile.js should clamp composer top position');
   assert(js.includes('EventSource'), 'mobile.js should subscribe via EventSource');
   assert(js.includes('/api/sessions'), 'mobile.js should fetch sessions');
   assert(js.includes('/api/send'), 'mobile.js should post messages');
