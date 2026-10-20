@@ -131,28 +131,12 @@ export function sendTextToTmux(sessionName, text, cid = null) {
   }
 }
 
-// The dashboard's page for a conversation hosted by the remote-control daemon.
-// The path carries the CLI version, so read it from `agy --version` or fallback to 1.4.2.
-let agyVersion = null;
-export function getAgyVersion() {
-  if (agyVersion !== null) return agyVersion;
-  try {
-    const agyBin = fs.existsSync('/home/ttolmany/.local/bin/agy')
-      ? '/home/ttolmany/.local/bin/agy'
-      : 'agy';
-    const out = execSync(`${agyBin} --version`, { encoding: 'utf-8', timeout: 3000 }).trim();
-    agyVersion = out.split(/\s+/).pop() || '1.4.2';
-  } catch (e) {
-    agyVersion = '1.4.2';
-  }
-  return agyVersion;
-}
-
 // The official web dashboard URL for an Antigravity conversation.
+// antigravity.google.com is the authenticated top-level host.
+// (static.usercontent.goog is an internal sandboxed iframe that cannot be opened directly in a browser tab without losing auth/context)
 export function dashboardUrlForConversation(cid) {
-  const ver = getAgyVersion();
-  if (!cid) return `https://antigravity.static.usercontent.goog/web/cli-${ver}`;
-  return `https://antigravity.static.usercontent.goog/web/cli-${ver}/c/${cid}`;
+  if (!cid) return 'https://antigravity.google.com';
+  return `https://antigravity.google.com/c/${cid}`;
 }
 
 export function captureTmuxPane(sessionName, lines = 300) {

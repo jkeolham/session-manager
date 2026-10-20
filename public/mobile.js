@@ -404,19 +404,18 @@
     if (btnGoogleWeb) {
       const targetCid = session.cid || (session.name && session.name.startsWith('rc_') ? session.name.slice(3) : null);
       if (targetCid) {
-        // 즉시 현재 세션 대화 주소 바인딩 (대시보드 cli-1.4.2 엔드포인트 직결)
-        const initialUrl = `https://antigravity.static.usercontent.goog/web/cli-1.4.2/c/${targetCid}`;
+        // 즉시 현재 세션 대화 주소 바인딩 (인증 지원 공식 클라우드 웹 콘솔)
+        const initialUrl = `https://antigravity.google.com/c/${targetCid}`;
         btnGoogleWeb.href = initialUrl;
-        btnGoogleWeb.title = `대시보드 세션 열기 (${targetCid})`;
+        btnGoogleWeb.title = `Google Web 대시보드 열기 (${targetCid})`;
         btnGoogleWeb.style.display = 'inline-flex';
 
-        // 서버에서 버전을 정밀 계산한 최신 URL로 보정
         fetch(`/api/remote-url?cid=${encodeURIComponent(targetCid)}`)
           .then(r => r.json())
           .then(d => {
             if (d && d.url) {
               btnGoogleWeb.href = d.url;
-              if (d.cid) btnGoogleWeb.title = `대시보드 세션 열기 (${d.cid})`;
+              if (d.cid) btnGoogleWeb.title = `Google Web 대시보드 열기 (${d.cid})`;
             }
           })
           .catch(() => {});
@@ -1443,10 +1442,7 @@
     btnGoogleWebEl.addEventListener('click', (e) => {
       const cid = currentSession ? (currentSession.cid || (currentSession.name && currentSession.name.startsWith('rc_') ? currentSession.name.slice(3) : '')) : '';
       if (cid) {
-        const currentHref = btnGoogleWebEl.getAttribute('href');
-        const fullUrl = (currentHref && currentHref.startsWith('http') && !currentHref.includes('antigravity.google.com/c/'))
-          ? currentHref
-          : `https://antigravity.static.usercontent.goog/web/cli-1.4.2/c/${cid}`;
+        const fullUrl = `https://antigravity.google.com/c/${cid}`;
         btnGoogleWebEl.href = fullUrl;
         window.open(fullUrl, '_blank', 'noopener,noreferrer');
         e.preventDefault();
