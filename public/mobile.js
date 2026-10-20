@@ -120,6 +120,7 @@
   function openDrawer() {
     drawer.classList.add('open');
     drawerBackdrop.classList.add('active');
+    fetchSessions(); // Refresh session states in background
   }
 
   function closeDrawer() {
@@ -185,14 +186,29 @@
         const displayName = item.title || item.name;
         const subName = item.title ? item.name : (item.cid ? `cid: ${item.cid.slice(0, 8)}` : '');
 
+        const isRunning = !!item.isRunning;
+        const isRecent = !!item.isRecent;
+        const timeAgo = item.timeAgo || '';
+
+        let statusHtml = '';
+        if (isRunning) {
+          statusHtml = `<span class="session-status-spinner" title="동작 중 (생각/실행)"></span>`;
+        } else if (isRecent) {
+          statusHtml = `<span class="session-status-dot" title="동작 완료 / 최근 대화"></span>${timeAgo ? `<span class="session-status-time">${escapeHtml(timeAgo)}</span>` : ''}`;
+        } else if (timeAgo) {
+          statusHtml = `<span class="session-status-time">${escapeHtml(timeAgo)}</span>`;
+        }
+
         html += `
           <div class="session-item ${activeClass}" data-session="${escapeHtml(JSON.stringify(item))}">
             <div class="session-item-info">
               <div class="session-item-name">${escapeHtml(displayName)}</div>
               ${subName ? `<div class="session-item-title">${escapeHtml(subName)}</div>` : ''}
             </div>
-            <span class="badge ${cat.badgeClass}">${cat.label.split(' ')[0]}</span>
-            ${cat.key === 'agy' && item.cid ? `<button class="session-delete-btn" type="button" aria-label="대화 삭제" title="대화 삭제">🗑</button>` : ''}
+            <div class="session-item-right">
+              ${statusHtml ? `<div class="session-status-indicator">${statusHtml}</div>` : ''}
+              ${cat.key === 'agy' && item.cid ? `<button class="session-delete-btn" type="button" aria-label="대화 삭제" title="대화 삭제">🗑</button>` : ''}
+            </div>
           </div>
         `;
       });
@@ -250,10 +266,132 @@
 
   // --- Select & Load Session ---
 
+  let earliestLoadedTurnIndex = null;
+  let hasEarlierMessages = false;
+  let isLoadingEarlier = false;
+
+  function renderLoadEarlierButton(remainingCount = 0) {
+    let container = document.getElementById('loadEarlierContainer');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'load-earlier-container';
+      container.id = 'loadEarlierContainer';
+      if (chatHistory.firstChild) {
+        chatHistory.insertBefore(container, chatHistory.firstChild);
+      } else {
+        chatHistory.appendChild(container);
+      }
+    }
+    const countText = remainingCount > 0 ? ` (${remainingCount}개 남음)` : '';
+    container.innerHTML = `<button type="button" class="load-earlier-btn" id="btnLoadEarlier">⬆️ 이전 대화 불러오기${countText}</button>`;
+    const btn = document.getElementById('btnLoadEarlier');
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        loadEarlierMessages();
+      });
+    }
+  }
+
+  async function loadEarlierMessages() {
+    if (isLoadingEarlier || !hasEarlierMessages || earliestLoadedTurnIndex === null || !currentSession) return;
+    isLoadingEarlier = true;
+    const btn = document.getElementById('btnLoadEarlier');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="thinking-spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>이전 대화 불러오는 중...`;
+    }
+
+    const cid = currentSession.cid || '';
+    const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
+
+    try {
+      const res = await fetch(`/api/transcript?cid=${encodeURIComponent(cid)}&session=${encodeURIComponent(sessionName)}&limit=60&before=${earliestLoadedTurnIndex}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (data.turns && data.turns.length > 0) {
+        // 1. Find the first visible message element in viewport as anchoring reference
+        const containerRect = chatContainer.getBoundingClientRect();
+        const existingMessages = chatHistory.querySelectorAll('.message');
+        let anchorEl = null;
+        let anchorOffset = 0;
+
+        for (let i = 0; i < existingMessages.length; i++) {
+          const rect = existingMessages[i].getBoundingClientRect();
+          if (rect.bottom > containerRect.top) {
+            anchorEl = existingMessages[i];
+            anchorOffset = rect.top - containerRect.top;
+            break;
+          }
+        }
+
+        const prevScrollHeight = chatContainer.scrollHeight;
+        const prevScrollTop = chatContainer.scrollTop;
+
+        // 2. Build and prepend turns cleanly
+        const grouped = groupTurnsForDisplay(data.turns);
+        const fragment = document.createDocumentFragment();
+        grouped.forEach(t => {
+          fragment.appendChild(createTurnElement(t));
+        });
+
+        const container = document.getElementById('loadEarlierContainer');
+        if (container && container.nextSibling) {
+          chatHistory.insertBefore(fragment, container.nextSibling);
+        } else if (chatHistory.firstChild) {
+          chatHistory.insertBefore(fragment, chatHistory.firstChild);
+        } else {
+          chatHistory.appendChild(fragment);
+        }
+
+        earliestLoadedTurnIndex = data.earliestIndex || (data.turns[0] ? data.turns[0].index : earliestLoadedTurnIndex);
+        hasEarlierMessages = !!data.hasEarlier;
+
+        // 3. Pixel-perfect scroll restoration using the anchor element
+        if (anchorEl) {
+          const newRect = anchorEl.getBoundingClientRect();
+          const delta = (newRect.top - containerRect.top) - anchorOffset;
+          chatContainer.scrollTop += delta;
+        } else {
+          const newScrollHeight = chatContainer.scrollHeight;
+          chatContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+        }
+      } else {
+        hasEarlierMessages = false;
+      }
+
+      const container = document.getElementById('loadEarlierContainer');
+      if (!hasEarlierMessages) {
+        if (container) {
+          container.outerHTML = '<div class="transcript-beginning-marker">🌱 대화의 시작입니다</div>';
+        }
+      } else if (btn) {
+        btn.disabled = false;
+        const remaining = Math.max(0, (data.totalCount || 0) - chatHistory.querySelectorAll('.message').length);
+        const countText = remaining > 0 ? ` (${remaining}개 남음)` : '';
+        btn.innerHTML = `⬆️ 이전 대화 불러오기${countText}`;
+      }
+    } catch (err) {
+      console.error('Failed to load earlier messages:', err);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `⚠️ 재시도: 이전 대화 불러오기`;
+      }
+    } finally {
+      isLoadingEarlier = false;
+    }
+  }
+
   async function selectSession(session) {
     if (!session) return;
     currentSession = session;
     localStorage.setItem('active_session', JSON.stringify(session));
+
+    // Reset pagination state
+    earliestLoadedTurnIndex = null;
+    hasEarlierMessages = false;
+    isLoadingEarlier = false;
 
     // Update Header
     headerTitle.innerText = session.title || session.name;
@@ -300,7 +438,14 @@
       const data = await res.json();
 
       chatHistory.innerHTML = '';
+      hasEarlierMessages = !!data.hasEarlier;
+      earliestLoadedTurnIndex = data.earliestIndex || (data.turns && data.turns[0] ? data.turns[0].index : null);
+
       if (data.turns && data.turns.length > 0) {
+        if (hasEarlierMessages) {
+          const remaining = Math.max(0, (data.totalCount || 0) - data.turns.length);
+          renderLoadEarlierButton(remaining);
+        }
         const grouped = groupTurnsForDisplay(data.turns);
         grouped.forEach(turn => appendTurn(turn));
       } else if (data.terminalOutput) {
@@ -376,13 +521,15 @@
     }
   }
 
-  function buildAssistantTurnBody(turn) {
+  function buildAssistantTurnBody(turn, forceOpen = false) {
     let bodyHtml = '';
 
     const hasThinkings = (turn.thinkings && turn.thinkings.length > 0) || (turn.thinking && turn.thinking.trim());
     const toolList = Array.isArray(turn.toolCalls) ? turn.toolCalls : [];
     const toolCount = toolList.length;
     const hasWorkProcess = hasThinkings || toolCount > 0;
+    const content = (turn.content || turn.text || '').trim();
+    const isGenerating = !content;
 
     if (hasWorkProcess) {
       const parts = [];
@@ -394,6 +541,7 @@
         parts.push(`도구 실행 ${toolCount}건`);
       }
       const summaryLabel = `⚙️ 작업 과정 (${parts.join(' · ')})`;
+      const shouldOpen = forceOpen || isGenerating;
 
       let innerHtml = '';
       if (hasThinkings) {
@@ -402,8 +550,8 @@
           : turn.thinking;
         innerHtml += `
           <div class="process-section">
-            <div class="process-subtitle">💭 사고 과정</div>
-            <div class="process-text">${escapeHtml(fullThinking)}</div>
+            <div class="process-subtitle">💭 사고 과정 ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>생각 중</span>' : ''}</div>
+            <div class="process-text ${isGenerating ? 'thinking-preview-text' : ''}">${escapeHtml(fullThinking)}</div>
           </div>
         `;
       }
@@ -411,7 +559,7 @@
       if (toolCount > 0) {
         innerHtml += `
           <div class="process-section">
-            <div class="process-subtitle">🛠️ 도구 실행 내역 (${toolCount}건)</div>
+            <div class="process-subtitle">🛠️ 도구 실행 내역 (${toolCount}건) ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>실행 중</span>' : ''}</div>
             <div class="process-tools-list">
         `;
         toolList.forEach((tc, idx) => {
@@ -441,34 +589,118 @@
       }
 
       bodyHtml += `
-        <details class="work-process-block">
+        <details class="work-process-block" ${shouldOpen ? 'open' : ''}>
           <summary class="work-process-summary">
             <span class="work-process-label">${escapeHtml(summaryLabel)}</span>
+            ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>진행 중</span>' : ''}
           </summary>
           <div class="work-process-body">
             ${innerHtml}
           </div>
         </details>
       `;
+    } else if (isGenerating) {
+      bodyHtml += `
+        <div class="live-thinking-card">
+          <div class="thinking-header">
+            <div class="thinking-spinner"></div>
+            <span class="thinking-title">에이전트가 생각하고 있습니다...</span>
+            <span class="live-badge"><span class="live-indicator-dot"></span>사고 중</span>
+          </div>
+          <div class="thinking-preview">답변 및 도구 실행을 계획하는 중입니다...</div>
+        </div>
+      `;
     }
 
-    const content = turn.content || turn.text || '';
-    if (content.trim()) {
+    if (content) {
       bodyHtml += `<div class="turn-markdown">${renderMarkdown(content)}</div>`;
-    } else if (!hasWorkProcess) {
+    } else if (!hasWorkProcess && !isGenerating) {
       bodyHtml += `<div class="turn-markdown empty-content">(내용 없음)</div>`;
+    }
+
+    // Assistant Turn Footer: Review & Copy Buttons
+    if (!isGenerating && (content || hasWorkProcess)) {
+      bodyHtml += `
+        <div class="turn-footer">
+          <div class="turn-footer-left">
+            <button class="turn-review-btn" type="button" title="코드 변경 사항 리뷰">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+              </svg>
+              <span>Review</span>
+            </button>
+          </div>
+          <div class="turn-footer-right">
+            ${turn.timestamp ? `<span class="turn-time">${formatTimeAgo(turn.timestamp)}</span>` : ''}
+            <button class="turn-copy-btn" type="button" title="답변 복사" aria-label="답변 복사">
+              <svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
     }
 
     return bodyHtml;
   }
 
-  function appendTurn(turn) {
+  function formatTimeAgo(timestamp) {
+    if (!timestamp) return '';
+    try {
+      const date = new Date(timestamp);
+      const now = new Date();
+      const diffSec = Math.floor((now - date) / 1000);
+      if (isNaN(diffSec) || diffSec < 0) return '';
+      if (diffSec < 60) return '방금 전';
+      const diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return `${diffMin}m ago`;
+      const diffHour = Math.floor(diffMin / 60);
+      if (diffHour < 24) return `${diffHour}h ago`;
+      const diffDays = Math.floor(diffHour / 24);
+      return `${diffDays}d ago`;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function formatMessageTime(timestamp) {
+    if (!timestamp) {
+      const d = new Date();
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+    try {
+      const d = new Date(timestamp);
+      if (isNaN(d.getTime())) return '';
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const now = new Date();
+      const isToday = d.toDateString() === now.toDateString();
+      if (isToday) {
+        return `${hours}:${minutes}`;
+      }
+      const month = d.getMonth() + 1;
+      const date = d.getDate();
+      return `${month}/${date} ${hours}:${minutes}`;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function createTurnElement(turn) {
     const msgEl = document.createElement('div');
     msgEl.className = `message ${turn.role || 'assistant'}`;
     msgEl.__turnData = turn;
 
     if (turn.role === 'user') {
-      let userHtml = escapeHtml(turn.content || '');
+      let userHtml = `<div class="user-content-text">${escapeHtml(turn.content || '')}</div>`;
       if (Array.isArray(turn.attachments) && turn.attachments.length > 0) {
         userHtml += `<div class="message-attachments">`;
         turn.attachments.forEach(att => {
@@ -481,11 +713,38 @@
         });
         userHtml += `</div>`;
       }
-      msgEl.innerHTML = `<div class="bubble">${userHtml}</div>`;
+
+      const timeText = formatMessageTime(turn.timestamp);
+      const metaHtml = `
+        <div class="user-turn-meta">
+          ${timeText ? `<span class="turn-time user-turn-time">${escapeHtml(timeText)}</span>` : ''}
+          <button class="turn-copy-btn user-copy-btn" type="button" title="메시지 복사" aria-label="메시지 복사">
+            <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+        </div>
+      `;
+
+      msgEl.innerHTML = `
+        <div class="user-message-row">
+          ${metaHtml}
+          <div class="bubble">${userHtml}</div>
+        </div>
+      `;
     } else {
       msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn)}</div>`;
     }
 
+    return msgEl;
+  }
+
+  function appendTurn(turn) {
+    const msgEl = createTurnElement(turn);
     chatHistory.appendChild(msgEl);
     scrollToBottom();
   }
@@ -493,10 +752,88 @@
   function updateAssistantTurnElement(msgEl, turn) {
     msgEl.__turnData = turn;
     const wasOpen = msgEl.querySelector('.work-process-block')?.open;
-    msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn)}</div>`;
-    if (wasOpen) {
+    const isGenerating = !turn.content || !turn.content.trim();
+    const shouldOpen = (wasOpen !== false) || isGenerating;
+    msgEl.innerHTML = `<div class="bubble">${buildAssistantTurnBody(turn, shouldOpen)}</div>`;
+    if (shouldOpen) {
       const block = msgEl.querySelector('.work-process-block');
       if (block) block.open = true;
+    }
+  }
+
+  let isSyncingSession = false;
+
+  async function syncActiveSession(forceReconnect = true) {
+    if (!currentSession || isSyncingSession) return;
+    const cid = currentSession.cid || '';
+    const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
+    if (!cid && !sessionName) return;
+
+    isSyncingSession = true;
+    try {
+      const res = await fetch(`/api/transcript?cid=${encodeURIComponent(cid)}&session=${encodeURIComponent(sessionName)}&limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.turns)) {
+          const typingEl = chatHistory.querySelector('.typing-msg');
+
+          if (data.turns.length > 0) {
+            const existingMessages = chatHistory.querySelectorAll('.message:not(.typing-msg)');
+            const grouped = groupTurnsForDisplay(data.turns);
+
+            if (existingMessages.length === 0) {
+              chatHistory.innerHTML = '';
+              grouped.forEach(t => appendTurn(t));
+              scrollToBottom(true);
+            } else {
+              const latestServerTurn = grouped[grouped.length - 1];
+              const lastRenderedEl = chatHistory.querySelector('.message:last-of-type:not(.typing-msg)');
+              const lastRenderedTurn = lastRenderedEl ? lastRenderedEl.__turnData : null;
+
+              const isDifferentLastTurn = !lastRenderedTurn ||
+                latestServerTurn.index !== lastRenderedTurn.index ||
+                latestServerTurn.role !== lastRenderedTurn.role ||
+                (latestServerTurn.content || '') !== (lastRenderedTurn.content || '') ||
+                ((latestServerTurn.toolCalls || []).length !== (lastRenderedTurn.toolCalls || []).length);
+
+              if (isDifferentLastTurn || grouped.length !== existingMessages.length) {
+                const wasNearBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 180;
+                chatHistory.innerHTML = '';
+                hasEarlierMessages = !!data.hasEarlier;
+                earliestLoadedTurnIndex = data.earliestIndex || (data.turns && data.turns[0] ? data.turns[0].index : null);
+
+                if (hasEarlierMessages) {
+                  const remaining = Math.max(0, (data.totalCount || 0) - data.turns.length);
+                  renderLoadEarlierButton(remaining);
+                }
+                grouped.forEach(t => appendTurn(t));
+                if (wasNearBottom) {
+                  scrollToBottom(true);
+                }
+              }
+            }
+
+            // Ensure typing indicator is removed if assistant turn is present
+            const hasAssistantTurn = data.turns.some(t => t.role === 'assistant');
+            if (hasAssistantTurn && typingEl) {
+              typingEl.remove();
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Sync active session error:', err);
+    } finally {
+      isSyncingSession = false;
+    }
+
+    // Reconnect SSE if requested or if dead
+    if (forceReconnect || !activeEventSource || activeEventSource.readyState === EventSource.CLOSED) {
+      if (activeEventSource) {
+        try { activeEventSource.close(); } catch (e) {}
+        activeEventSource = null;
+      }
+      connectStream(cid, sessionName);
     }
   }
 
@@ -731,10 +1068,21 @@
         timestamp: new Date().toISOString()
       });
 
-      // Show typing indicator
+      // Show live thinking indicator
       const typingEl = document.createElement('div');
       typingEl.className = 'message assistant typing-msg';
-      typingEl.innerHTML = `<div class="bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+      typingEl.innerHTML = `
+        <div class="bubble">
+          <div class="live-thinking-card">
+            <div class="thinking-header">
+              <div class="thinking-spinner"></div>
+              <span class="thinking-title">에이전트가 생각하고 있습니다...</span>
+              <span class="live-badge"><span class="live-indicator-dot"></span>사고 중</span>
+            </div>
+            <div class="thinking-preview">입력된 내용을 분석하고 실행 계획을 수립하고 있습니다...</div>
+          </div>
+        </div>
+      `;
       chatHistory.appendChild(typingEl);
       scrollToBottom();
     }
@@ -855,30 +1203,55 @@
     window.visualViewport.addEventListener('scroll', onViewportResize);
   }
 
+  let lastScrollTop = 0;
   chatContainer.addEventListener('scroll', () => {
-    const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
+    const currentScrollTop = chatContainer.scrollTop;
+    const isScrollingUp = currentScrollTop < lastScrollTop;
+    lastScrollTop = currentScrollTop;
+
+    const isAtBottom = chatContainer.scrollHeight - currentScrollTop - chatContainer.clientHeight < 50;
     isAutoScroll = isAtBottom;
     if (isAtBottom) {
       btnScrollBottom.classList.remove('visible');
     } else {
       btnScrollBottom.classList.add('visible');
     }
-  });
+
+    // Check top for infinite scroll loading of earlier messages only when scrolling upwards
+    if (isScrollingUp && currentScrollTop < 120 && hasEarlierMessages && !isLoadingEarlier) {
+      loadEarlierMessages();
+    }
+  }, { passive: true });
 
   btnScrollBottom.addEventListener('click', () => {
-    scrollToBottom(true);
+    chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
   });
 
-  // Auto-reconnect SSE on tab visibility recovery
+  // Auto-sync & reconnect when returning from another app or waking up
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && currentSession) {
-      if (!activeEventSource || activeEventSource.readyState === EventSource.CLOSED) {
-        const cid = currentSession.cid || '';
-        const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
-        connectStream(cid, sessionName);
-      }
+    if (document.visibilityState === 'visible') {
+      syncActiveSession(true);
     }
   });
+
+  window.addEventListener('pageshow', () => {
+    // Fired on page restore from BFCache or app resume
+    syncActiveSession(true);
+  });
+
+  window.addEventListener('focus', () => {
+    syncActiveSession(false);
+  });
+
+  // Safety poll: While waiting for agent response or thinking, poll every 3.5s to ensure no dropped events
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && currentSession) {
+      const isAgentThinking = !!chatHistory.querySelector('.typing-msg');
+      if (isAgentThinking || isSending) {
+        syncActiveSession(false);
+      }
+    }
+  }, 3500);
 
   // --- PWA Service Worker Registration & Install Prompt ---
   if ('serviceWorker' in navigator) {
@@ -945,8 +1318,8 @@
     const updateFsBtnText = () => {
       const active = isFullscreenActive();
       btnFullscreen.innerHTML = active
-        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg> 창모드`
-        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg> 전체화면`;
+        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg> <span class="btn-text">창모드</span>`
+        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg> <span class="btn-text">전체화면</span>`;
     };
 
     btnFullscreen.addEventListener('click', async () => {
@@ -973,6 +1346,231 @@
     document.addEventListener('fullscreenchange', updateFsBtnText);
     document.addEventListener('webkitfullscreenchange', updateFsBtnText);
   }
+
+  // --- Copy & Review Action Handlers ---
+  chatHistory.addEventListener('click', async (e) => {
+    // 1. Copy button
+    const copyBtn = e.target.closest('.turn-copy-btn');
+    if (copyBtn) {
+      e.stopPropagation();
+      const msgEl = copyBtn.closest('.message');
+      const turn = msgEl?.__turnData;
+      const textToCopy = (turn?.content || msgEl?.querySelector('.turn-markdown')?.innerText || msgEl?.querySelector('.user-content-text')?.innerText || '').trim();
+      if (textToCopy) {
+        try {
+          await navigator.clipboard.writeText(textToCopy);
+          const iconCopy = copyBtn.querySelector('.icon-copy');
+          const iconCheck = copyBtn.querySelector('.icon-check');
+          copyBtn.classList.add('copied');
+          if (iconCopy) iconCopy.style.display = 'none';
+          if (iconCheck) iconCheck.style.display = 'inline-block';
+          setTimeout(() => {
+            copyBtn.classList.remove('copied');
+            if (iconCopy) iconCopy.style.display = 'inline-block';
+            if (iconCheck) iconCheck.style.display = 'none';
+          }, 1500);
+        } catch (err) {
+          console.error('Clipboard copy failed:', err);
+        }
+      }
+      return;
+    }
+
+    // 2. Review button
+    const reviewBtn = e.target.closest('.turn-review-btn');
+    if (reviewBtn) {
+      e.stopPropagation();
+      openReviewModal();
+      return;
+    }
+  });
+
+  // --- Code Review / Diff Modal ---
+  const reviewModal = document.getElementById('review-modal');
+  const reviewBackdrop = document.getElementById('review-modal-backdrop');
+  const reviewSubtitle = document.getElementById('review-modal-subtitle');
+  const reviewBody = document.getElementById('review-modal-body');
+  const reviewWebLink = document.getElementById('btn-review-web-link');
+  const btnCloseReview = document.getElementById('btn-close-review');
+
+  function openReviewModal() {
+    if (!reviewModal || !currentSession) return;
+    reviewModal.classList.add('open');
+    if (reviewBackdrop) reviewBackdrop.classList.add('open');
+
+    const cid = currentSession.cid || '';
+    const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
+
+    // Configure Web remote link
+    if (reviewWebLink) {
+      if (cid) {
+        reviewWebLink.style.display = 'inline-flex';
+        fetch(`/api/remote-url?cid=${encodeURIComponent(cid)}`)
+          .then(r => r.json())
+          .then(d => { if (d && d.url) reviewWebLink.href = d.url; })
+          .catch(() => {});
+      } else {
+        reviewWebLink.style.display = 'none';
+      }
+    }
+
+    if (reviewSubtitle) reviewSubtitle.innerText = `${sessionName} 변경 내역 조회 중...`;
+    if (reviewBody) reviewBody.innerHTML = '<div class="loading-spinner">변경 사항을 불러오는 중...</div>';
+
+    fetch(`/api/diff?cid=${encodeURIComponent(cid)}&session=${encodeURIComponent(sessionName)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data || !data.ok || !data.diff) {
+          if (reviewSubtitle) reviewSubtitle.innerText = '변경된 파일이 없습니다';
+          if (reviewBody) {
+            reviewBody.innerHTML = `
+              <div class="empty-state" style="padding: 24px 0;">
+                <div style="font-size: 32px; margin-bottom: 8px;">✅</div>
+                <div style="font-weight: 600; color: #f0f6fc; margin-bottom: 4px;">작업 트리에 변경 사항이 없습니다</div>
+                <div style="color: #8b949e; font-size: 12px;">모든 변경 사항이 커밋되었거나 깨끗한 상태입니다.</div>
+              </div>
+            `;
+          }
+          return;
+        }
+
+        if (reviewSubtitle) {
+          reviewSubtitle.innerText = data.summary || `${data.filesChanged}개 파일 변경`;
+        }
+
+        let statHtml = '';
+        if (data.stat) {
+          statHtml = `<div class="diff-stat-badge">📊 ${escapeHtml(data.stat.trim())}</div>`;
+        }
+
+        // Colorize diff lines
+        const lines = data.diff.split('\n');
+        let diffHtml = '';
+        lines.forEach(line => {
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            diffHtml += `<span class="diff-line-add">${escapeHtml(line)}</span>`;
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            diffHtml += `<span class="diff-line-del">${escapeHtml(line)}</span>`;
+          } else if (line.startsWith('diff --git') || line.startsWith('@@')) {
+            diffHtml += `<span class="diff-line-header">${escapeHtml(line)}</span>`;
+          } else {
+            diffHtml += `${escapeHtml(line)}\n`;
+          }
+        });
+
+        if (reviewBody) {
+          reviewBody.innerHTML = `${statHtml}<div class="diff-content-block">${diffHtml}</div>`;
+        }
+      })
+      .catch(err => {
+        if (reviewSubtitle) reviewSubtitle.innerText = 'Diff 조회 실패';
+        if (reviewBody) reviewBody.innerHTML = `<div class="empty-state"><p>조회 실패: ${escapeHtml(err.message)}</p></div>`;
+      });
+  }
+
+  function closeReviewModal() {
+    if (reviewModal) reviewModal.classList.remove('open');
+    if (reviewBackdrop) reviewBackdrop.classList.remove('open');
+  }
+
+  if (btnCloseReview) btnCloseReview.addEventListener('click', closeReviewModal);
+  if (reviewBackdrop) reviewBackdrop.addEventListener('click', closeReviewModal);
+
+  // --- Pull-to-Refresh & Down-scroll at End Refresh ---
+  const pullRefreshIndicator = document.getElementById('pull-refresh-indicator');
+  let touchStartY = 0;
+  let isTouching = false;
+  let isRefreshing = false;
+
+  async function triggerPullRefresh() {
+    if (isRefreshing) return;
+    isRefreshing = true;
+
+    if (pullRefreshIndicator) {
+      pullRefreshIndicator.classList.add('visible');
+      const textEl = pullRefreshIndicator.querySelector('.pull-refresh-text');
+      if (textEl) textEl.innerText = '대화 새로고침 중...';
+    }
+
+    try {
+      if (currentSession) {
+        await selectSession(currentSession);
+      }
+      await fetchSessions();
+    } catch (err) {
+      console.warn('Refresh failed:', err);
+    } finally {
+      setTimeout(() => {
+        if (pullRefreshIndicator) {
+          pullRefreshIndicator.classList.remove('visible');
+          const textEl = pullRefreshIndicator.querySelector('.pull-refresh-text');
+          if (textEl) textEl.innerText = '당겨서 새로고침';
+        }
+        isRefreshing = false;
+      }, 500);
+    }
+  }
+
+  chatContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchStartY = e.touches[0].clientY;
+      isTouching = true;
+    }
+  }, { passive: true });
+
+  chatContainer.addEventListener('touchmove', (e) => {
+    if (!isTouching || isRefreshing || e.touches.length !== 1) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - touchStartY;
+
+    const isAtTop = chatContainer.scrollTop <= 5;
+    const isAtBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) <= 15;
+
+    // Trigger feedback when user drags downwards from top or bottom edge
+    if (deltaY > 0 && (isAtTop || isAtBottom)) {
+      const pullDist = Math.min(deltaY * 0.45, 90);
+      if (pullDist > 15 && pullRefreshIndicator) {
+        pullRefreshIndicator.classList.add('visible');
+        const textEl = pullRefreshIndicator.querySelector('.pull-refresh-text');
+        if (textEl) {
+          textEl.innerText = pullDist > 55 ? '놓으면 새로고침' : '당겨서 새로고침';
+        }
+      }
+    }
+  }, { passive: true });
+
+  chatContainer.addEventListener('touchend', (e) => {
+    if (!isTouching || isRefreshing) {
+      isTouching = false;
+      return;
+    }
+    isTouching = false;
+    const currentY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : touchStartY;
+    const deltaY = currentY - touchStartY;
+    const isAtTop = chatContainer.scrollTop <= 10;
+    const isAtBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) <= 25;
+
+    if (deltaY > 60 && (isAtTop || isAtBottom)) {
+      triggerPullRefresh();
+    } else if (pullRefreshIndicator) {
+      pullRefreshIndicator.classList.remove('visible');
+    }
+  }, { passive: true });
+
+  let wheelOverBottomCount = 0;
+  let wheelResetTimer = null;
+  chatContainer.addEventListener('wheel', (e) => {
+    const isAtBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) <= 5;
+    if (isAtBottom && e.deltaY > 25) {
+      wheelOverBottomCount++;
+      clearTimeout(wheelResetTimer);
+      wheelResetTimer = setTimeout(() => { wheelOverBottomCount = 0; }, 800);
+      if (wheelOverBottomCount >= 3) {
+        wheelOverBottomCount = 0;
+        triggerPullRefresh();
+      }
+    }
+  }, { passive: true });
 
   // --- Initial Load ---
   fetchSessions().then(() => {

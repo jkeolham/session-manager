@@ -213,6 +213,69 @@ export function createServer(options = {}) {
         return;
       }
 
+      // 1.01 GET /api/diff — return git status and diff for the session's workspace
+      if (req.method === 'GET' && pathname === '/api/diff') {
+        const cid = urlObj.searchParams.get('cid');
+        const session = urlObj.searchParams.get('session');
+        const fullCid = (cid && cid.length > 10) ? cid : findFullCidByPrefix(cid);
+        const targetSession = session || (fullCid ? `rc_${fullCid.slice(0, 8)}` : null);
+
+        let cwd = null;
+        if (targetSession) {
+          try {
+            cwd = execSync(`tmux display-message -p -t "${targetSession}" '#{pane_current_path}' 2>/dev/null`, {
+              encoding: 'utf-8',
+              timeout: 2000
+            }).trim();
+          } catch (e) {}
+        }
+
+        if (!cwd || !fs.existsSync(cwd)) {
+          cwd = process.cwd();
+        }
+
+        try {
+          const statRaw = execSync('git diff --stat 2>/dev/null || true', { cwd, encoding: 'utf-8', timeout: 3000 }).trim();
+          const diffRaw = execSync('git diff 2>/dev/null || true', { cwd, encoding: 'utf-8', timeout: 5000, maxBuffer: 2 * 1024 * 1024 }).trim();
+          const statusRaw = execSync('git status --short 2>/dev/null || true', { cwd, encoding: 'utf-8', timeout: 3000 }).trim();
+
+          let filesChanged = 0;
+          let insertions = 0;
+          let deletions = 0;
+
+          if (statRaw) {
+            const lastLine = statRaw.split('\n').pop() || '';
+            const matchFiles = lastLine.match(/(\d+)\s+file/);
+            const matchIns = lastLine.match(/(\d+)\s+insertion/);
+            const matchDel = lastLine.match(/(\d+)\s+deletion/);
+            if (matchFiles) filesChanged = parseInt(matchFiles[1], 10);
+            if (matchIns) insertions = parseInt(matchIns[1], 10);
+            if (matchDel) deletions = parseInt(matchDel[1], 10);
+          }
+
+          sendJson(res, 200, {
+            ok: true,
+            cwd,
+            filesChanged,
+            insertions,
+            deletions,
+            stat: statRaw,
+            status: statusRaw,
+            diff: diffRaw,
+            summary: filesChanged > 0 ? `${filesChanged} files changed (+${insertions} -${deletions})` : '변경된 파일 없음'
+          });
+        } catch (err) {
+          sendJson(res, 200, {
+            ok: false,
+            cwd,
+            filesChanged: 0,
+            summary: 'Diff 조회 불가',
+            diff: ''
+          });
+        }
+        return;
+      }
+
       // 1. GET /api/sessions
       if (req.method === 'GET' && pathname === '/api/sessions') {
         const raw = await getCategorizedSessions();
@@ -227,6 +290,7 @@ export function createServer(options = {}) {
             const shortCid = (rc.cid || '').slice(0, 4);
             const sName = `rc_${(rc.cid || '').slice(0, 8)}`;
             agyList.push({
+              ...rc,
               name: sName,
               cid: rc.cid,
               title: rc.title || 'AI Session',
@@ -234,6 +298,10 @@ export function createServer(options = {}) {
               cmd: 'agy',
               steps: rc.steps,
               time_str: rc.time_str,
+              timeAgo: rc.timeAgo || '',
+              isRunning: !!rc.isRunning,
+              isRecent: !!rc.isRecent,
+              status: rc.status || 'CASCADE_RUN_STATUS_IDLE',
               active: true
             });
             seenCids.add(rc.cid);
@@ -281,7 +349,9 @@ export function createServer(options = {}) {
       if (req.method === 'GET' && pathname === '/api/transcript') {
         const cid = urlObj.searchParams.get('cid');
         const session = urlObj.searchParams.get('session');
-        const limit = Number(urlObj.searchParams.get('limit')) || 50;
+        const limit = Number(urlObj.searchParams.get('limit')) || 100;
+        const beforeRaw = urlObj.searchParams.get('before');
+        const before = (beforeRaw !== null && beforeRaw !== '') ? Number(beforeRaw) : null;
 
         if (!cid && !session) {
           sendError(res, 400, 'Missing cid or session parameter');
@@ -290,14 +360,16 @@ export function createServer(options = {}) {
 
         const tPath = resolveTranscriptPath(cid, session);
         if (tPath && fs.existsSync(tPath)) {
-          const parsed = parseTranscriptFile(tPath, limit);
+          const parsed = parseTranscriptFile(tPath, limit, before);
           if (parsed.turns && parsed.turns.length > 0) {
             sendJson(res, 200, {
               session,
               cid,
               turns: parsed.turns,
               totalCount: parsed.totalCount,
-              hasEarlier: parsed.hasEarlier
+              hasEarlier: parsed.hasEarlier,
+              earliestIndex: parsed.earliestIndex,
+              latestIndex: parsed.latestIndex
             });
             return;
           }

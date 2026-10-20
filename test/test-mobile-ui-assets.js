@@ -17,15 +17,33 @@ function run() {
   assert(html.includes('drawer'), 'index.html must include drawer for sessions');
   assert(html.includes('chat-container'), 'index.html must include chat container');
   assert(html.includes('composer'), 'index.html must include message composer');
+  assert(html.includes('review-modal'), 'index.html must include review-modal');
+  assert(html.includes('pull-refresh-indicator'), 'index.html must include pull-refresh-indicator');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
   assert(css.includes('bubble'), 'mobile.css should style chat bubbles');
+  assert(css.includes('live-thinking-card'), 'mobile.css should style live-thinking-card');
+  assert(css.includes('load-earlier-btn'), 'mobile.css should style load-earlier-btn');
+  assert(css.includes('turn-review-btn'), 'mobile.css should style turn-review-btn');
+  assert(css.includes('turn-copy-btn'), 'mobile.css should style turn-copy-btn');
+  assert(css.includes('user-turn-meta') || css.includes('user-turn-footer'), 'mobile.css should style user message meta');
+  assert(css.includes('session-status-spinner'), 'mobile.css should style session-status-spinner');
+  assert(css.includes('session-status-dot'), 'mobile.css should style session-status-dot');
+  assert(css.includes('session-status-time'), 'mobile.css should style session-status-time');
+  assert(css.includes('review-modal'), 'mobile.css should style review-modal');
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('EventSource'), 'mobile.js should subscribe via EventSource');
   assert(js.includes('/api/sessions'), 'mobile.js should fetch sessions');
   assert(js.includes('/api/send'), 'mobile.js should post messages');
+  assert(js.includes('loadEarlierMessages'), 'mobile.js should support loading earlier messages');
+  assert(js.includes('live-thinking-card'), 'mobile.js should render live thinking card');
+  assert(js.includes('formatMessageTime'), 'mobile.js should format message time');
+  assert(js.includes('openReviewModal'), 'mobile.js should handle review modal');
+  assert(js.includes('triggerPullRefresh'), 'mobile.js should handle pull to refresh');
+  assert(js.includes('syncActiveSession'), 'mobile.js should sync active session on resume');
+  assert(js.includes('requestFullscreen'), 'mobile.js should support fullscreen request');
   assert(js.includes('serviceWorker'), 'mobile.js should register service worker');
   assert(js.includes('beforeinstallprompt'), 'mobile.js should handle PWA install prompt');
 

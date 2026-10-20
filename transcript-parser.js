@@ -23,9 +23,9 @@ function cleanString(str) {
   return str.replace(/^["'\s]+|["'\s]+$/g, '').trim();
 }
 
-function parseTranscriptString(rawText, limit = 50) {
+function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
   if (!rawText || !rawText.trim()) {
-    return { turns: [], totalCount: 0, hasEarlier: false };
+    return { turns: [], totalCount: 0, hasEarlier: false, earliestIndex: null, latestIndex: null };
   }
 
   const lines = rawText.trim().split('\n');
@@ -110,14 +110,21 @@ function parseTranscriptString(rawText, limit = 50) {
   }
 
   const totalCount = allTurns.length;
-  let turns = allTurns;
+  let candidateTurns = allTurns;
+
+  if (beforeIndex !== null && beforeIndex !== undefined && !isNaN(beforeIndex)) {
+    const beforeIdxNum = Number(beforeIndex);
+    candidateTurns = allTurns.filter(t => t.index < beforeIdxNum);
+  }
+
+  let turns = candidateTurns;
   let hasEarlier = false;
 
-  if (limit && totalCount > limit) {
-    const candidateStart = totalCount - limit;
+  if (limit && candidateTurns.length > limit) {
+    const candidateStart = candidateTurns.length - limit;
     const userIndices = [];
-    for (let i = 0; i < allTurns.length; i++) {
-      if (allTurns[i].role === 'user') {
+    for (let i = 0; i < candidateTurns.length; i++) {
+      if (candidateTurns[i].role === 'user') {
         userIndices.push(i);
       }
     }
@@ -143,10 +150,10 @@ function parseTranscriptString(rawText, limit = 50) {
     }
 
     if (startIndex > 0) {
-      turns = allTurns.slice(startIndex);
+      turns = candidateTurns.slice(startIndex);
       hasEarlier = true;
     } else {
-      turns = allTurns;
+      turns = candidateTurns;
       hasEarlier = false;
     }
   }
@@ -154,20 +161,22 @@ function parseTranscriptString(rawText, limit = 50) {
   return {
     turns,
     totalCount,
-    hasEarlier
+    hasEarlier,
+    earliestIndex: turns.length > 0 ? turns[0].index : null,
+    latestIndex: turns.length > 0 ? turns[turns.length - 1].index : null
   };
 }
 
-function parseTranscriptFile(filePath, limit = 50) {
+function parseTranscriptFile(filePath, limit = 50, beforeIndex = null) {
   if (!fs.existsSync(filePath)) {
-    return { turns: [], totalCount: 0, hasEarlier: false };
+    return { turns: [], totalCount: 0, hasEarlier: false, earliestIndex: null, latestIndex: null };
   }
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
-    return parseTranscriptString(raw, limit);
+    return parseTranscriptString(raw, limit, beforeIndex);
   } catch (err) {
     console.error(`Failed to read transcript file ${filePath}:`, err);
-    return { turns: [], totalCount: 0, hasEarlier: false };
+    return { turns: [], totalCount: 0, hasEarlier: false, earliestIndex: null, latestIndex: null };
   }
 }
 

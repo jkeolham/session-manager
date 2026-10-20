@@ -1,7 +1,28 @@
-import os, glob, sqlite3, datetime, json, sys
+import os, glob, sqlite3, datetime, json, sys, time
 
 CONV_DIR = os.path.expanduser("~/.gemini/antigravity-cli/conversations")
 DB_PATH = os.path.expanduser("~/.gemini/antigravity-cli/conversation_summaries.db")
+
+def format_time_ago(ts):
+    if not ts:
+        return ""
+    now = time.time()
+    diff = int(now - ts)
+    if diff < 0:
+        return "방금"
+    if diff < 60:
+        return "방금"
+    diff_min = diff // 60
+    if diff_min < 60:
+        return f"{diff_min}m"
+    diff_hour = diff_min // 60
+    if diff_hour < 24:
+        return f"{diff_hour}h"
+    diff_day = diff_hour // 24
+    if diff_day < 30:
+        return f"{diff_day}d"
+    diff_month = diff_day // 30
+    return f"{diff_month}mo"
 
 def get_all_titles():
     if not os.path.exists(DB_PATH):
@@ -10,9 +31,18 @@ def get_all_titles():
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
         c = conn.cursor()
         titles = {}
-        for cid, title, status, steps in c.execute("SELECT conversation_id, title, status, step_count FROM conversation_summaries"):
+        for cid, title, status, steps, not_idle, ltime in c.execute(
+            "SELECT conversation_id, title, status, step_count, not_fully_idle, last_modified_time FROM conversation_summaries"
+        ):
             if title:
-                titles[cid] = {"title": title, "status": status, "steps": steps}
+                is_running = (status == "CASCADE_RUN_STATUS_RUNNING") or bool(not_idle)
+                titles[cid] = {
+                    "title": title,
+                    "status": status,
+                    "steps": steps,
+                    "isRunning": is_running,
+                    "lastModified": ltime
+                }
         return titles
     except Exception:
         return {}
@@ -24,12 +54,22 @@ def get_sessions():
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
         c = conn.cursor()
         titles = {}
-        for cid, title, status, steps in c.execute("SELECT conversation_id, title, status, step_count FROM conversation_summaries"):
-            titles[cid] = {"title": title, "status": status, "steps": steps}
+        for cid, title, status, steps, not_idle, ltime in c.execute(
+            "SELECT conversation_id, title, status, step_count, not_fully_idle, last_modified_time FROM conversation_summaries"
+        ):
+            is_running = (status == "CASCADE_RUN_STATUS_RUNNING") or bool(not_idle)
+            titles[cid] = {
+                "title": title,
+                "status": status,
+                "steps": steps,
+                "isRunning": is_running,
+                "lastModified": ltime
+            }
     except Exception:
         titles = {}
 
     sessions = []
+    now = time.time()
     for fpath in glob.glob(f"{CONV_DIR}/*.db"):
         fname = os.path.basename(fpath)
         cid = fname[:-3]
@@ -45,11 +85,20 @@ def get_sessions():
             continue
 
         dt = datetime.datetime.fromtimestamp(mtime).strftime("%m-%d %H:%M")
+        time_ago = format_time_ago(mtime)
+        is_running = t_info.get("isRunning", False)
+        # Recent if modified within 12 hours or today
+        is_recent = (now - mtime) < 43200
+
         sessions.append({
             "cid": cid,
             "title": title,
             "mtime": mtime,
             "time_str": dt,
+            "timeAgo": time_ago,
+            "isRunning": is_running,
+            "isRecent": is_recent,
+            "status": t_info.get("status", "CASCADE_RUN_STATUS_IDLE"),
             "size_kb": size_kb,
             "steps": t_info.get("steps", 0)
         })

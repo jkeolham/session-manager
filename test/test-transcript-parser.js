@@ -83,5 +83,17 @@ assert.strictEqual(multiResult.turns[0].role, 'user');
 assert.strictEqual(multiResult.turns[0].content, '질문 2');
 assert.strictEqual(multiResult.turns.length, 4);
 assert.strictEqual(multiResult.hasEarlier, true);
+assert.strictEqual(multiResult.earliestIndex, 3);
+assert.strictEqual(multiResult.latestIndex, 6);
+
+// 5. Test pagination with beforeIndex
+const earlierResult = parseTranscriptString(multiExchange.join('\n'), 3, multiResult.earliestIndex);
+assert.strictEqual(earlierResult.totalCount, 6);
+assert.strictEqual(earlierResult.turns.length, 2, 'Should return earlier 2 turns');
+assert.strictEqual(earlierResult.turns[0].content, '질문 1');
+assert.strictEqual(earlierResult.turns[1].content, '답변 1');
+assert.strictEqual(earlierResult.hasEarlier, false, 'No earlier turns left');
+assert.strictEqual(earlierResult.earliestIndex, 1);
+assert.strictEqual(earlierResult.latestIndex, 2);
 
 console.log('✅ test-transcript-parser passed!');

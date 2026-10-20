@@ -1,5 +1,5 @@
 // Service Worker for N100 Session Manager PWA
-const CACHE_NAME = 'session-manager-v1';
+const CACHE_NAME = 'session-manager-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -14,16 +14,17 @@ const STATIC_ASSETS = [
   '/favicon.ico'
 ];
 
-// Install: Cache core app shell assets
+// Install: Cache core app shell assets and skip waiting immediately
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
-// Activate: Clean up old caches
+// Activate: Clean up all older caches and claim clients immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
