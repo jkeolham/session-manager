@@ -34,6 +34,7 @@ function run() {
   assert(css.includes('session-status-dot'), 'mobile.css should style session-status-dot');
   assert(css.includes('session-status-time'), 'mobile.css should style session-status-time');
   assert(css.includes('btn-toggle-tools'), 'mobile.css should style btn-toggle-tools');
+  assert(css.includes('user-processing-indicator'), 'mobile.css should style user-processing-indicator');
   assert(css.includes('queued-card'), 'mobile.css should style queued-card');
   assert(css.includes('btn-queue-order'), 'mobile.css should style btn-queue-order');
   assert(css.includes('keyboard-active'), 'mobile.css should handle keyboard-active');
@@ -42,6 +43,7 @@ function run() {
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('btn-toggle-tools'), 'mobile.js should include tool toggle logic');
   assert(js.includes('btn-google-web'), 'mobile.js should bind current session url to google web button');
+  assert(js.includes('user-processing-indicator'), 'mobile.js should render user processing indicator');
   assert(js.includes('minAllowedTop'), 'mobile.js should clamp composer top position');
   assert(js.includes('renderQueuedMessages'), 'mobile.js should render queued messages');
   assert(js.includes('btn-queue-up'), 'mobile.js should handle queue reordering');

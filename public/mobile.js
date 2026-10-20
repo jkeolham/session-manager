@@ -470,6 +470,7 @@
     connectStream(cid, sessionName);
     renderQueuedMessages();
     checkAndProcessQueue();
+    updateUserProcessingState();
   }
 
   function groupTurnsForDisplay(rawTurns) {
@@ -743,8 +744,10 @@
       }
 
       const timeText = formatMessageTime(turn.timestamp);
+      const isProcessing = !!turn.isProcessing;
       const metaHtml = `
         <div class="user-turn-meta">
+          ${isProcessing ? '<span class="user-processing-indicator" title="에이전트가 처리 중입니다..."><span class="user-spinner-dot"></span></span>' : ''}
           ${timeText ? `<span class="turn-time user-turn-time">${escapeHtml(timeText)}</span>` : ''}
           <button class="turn-copy-btn user-copy-btn" type="button" title="메시지 복사" aria-label="메시지 복사">
             <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -775,6 +778,30 @@
     const msgEl = createTurnElement(turn);
     chatHistory.appendChild(msgEl);
     scrollToBottom();
+    updateUserProcessingState();
+  }
+
+  function updateUserProcessingState() {
+    if (!chatHistory) return;
+    const userMsgs = chatHistory.querySelectorAll('.message.user');
+    if (userMsgs.length === 0) return;
+
+    // 모든 사용자 메시지에서 기존 스피너 제거
+    chatHistory.querySelectorAll('.user-processing-indicator').forEach(el => el.remove());
+
+    // 현재 세션이 busy(생각 중, 도구 실행 중, 또는 typing-msg 존재) 상태라면
+    // 가장 최근 사용자 메시지 메타 영역(가장 앞)에 움직이는 스피너 추가
+    if (isSessionBusy()) {
+      const lastUserMsg = userMsgs[userMsgs.length - 1];
+      const meta = lastUserMsg.querySelector('.user-turn-meta');
+      if (meta && !meta.querySelector('.user-processing-indicator')) {
+        const spinner = document.createElement('span');
+        spinner.className = 'user-processing-indicator';
+        spinner.title = '에이전트가 처리 중입니다...';
+        spinner.innerHTML = '<span class="user-spinner-dot"></span>';
+        meta.insertBefore(spinner, meta.firstChild);
+      }
+    }
   }
 
   function updateAssistantTurnElement(msgEl, turn) {
@@ -787,6 +814,7 @@
       const block = msgEl.querySelector('.work-process-block');
       if (block) block.open = true;
     }
+    updateUserProcessingState();
   }
 
   let isSyncingSession = false;
@@ -854,6 +882,7 @@
     } finally {
       isSyncingSession = false;
       checkAndProcessQueue();
+      updateUserProcessingState();
     }
 
     // Reconnect SSE if requested or if dead
@@ -1307,6 +1336,7 @@
       appendTurn({
         role: 'user',
         content: text,
+        isProcessing: true,
         attachments: (attachmentsToUpload || []).map(a => ({
           name: a.name,
           type: a.type,
@@ -1385,6 +1415,7 @@
       composerInput.focus();
       scrollToBottom(true);
       checkAndProcessQueue();
+      updateUserProcessingState();
     }
   }
 

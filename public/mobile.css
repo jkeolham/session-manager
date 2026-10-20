@@ -1525,7 +1525,7 @@ details.work-process-block[open] .work-process-summary {
   color: #34d399;
 }
 
-/* User Message Meta (Outside Bubble: Time & Copy) */
+/* User Message Meta (Outside Bubble: Time & Copy & Processing Spinner) */
 .user-turn-meta {
   display: inline-flex;
   align-items: center;
@@ -1533,6 +1533,29 @@ details.work-process-block[open] .work-process-summary {
   margin-bottom: 2px;
   flex-shrink: 0;
   user-select: none;
+}
+
+.user-processing-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 1px;
+}
+
+.user-spinner-dot {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(124, 172, 248, 0.25);
+  border-top-color: #7cacf8;
+  border-right-color: #7cacf8;
+  border-radius: 50%;
+  animation: userSpin 0.75s linear infinite;
+}
+
+@keyframes userSpin {
+  to { transform: rotate(360deg); }
 }
 
 .user-turn-time {
