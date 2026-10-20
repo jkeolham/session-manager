@@ -623,6 +623,41 @@
     }
   }
 
+  function formatClaudeTool(tc) {
+    const name = tc.name || 'tool';
+    const args = tc.args || {};
+    let type = 'Tool';
+    let target = tc.label || tc.summary || '';
+
+    if (name === 'run_command' || name === 'bash' || name === 'terminal') {
+      type = 'Bash';
+      target = args.CommandLine || target || 'command';
+      if (target.length > 55) target = target.slice(0, 52) + '...';
+    } else if (name === 'read_file') {
+      type = 'Read';
+      const p = args.Path || args.path || target;
+      target = p.split('/').pop() || p;
+    } else if (name === 'edit_file') {
+      type = 'Edit';
+      const p = args.Path || args.path || target;
+      target = p.split('/').pop() || p;
+    } else if (name === 'write_file') {
+      type = 'Write';
+      const p = args.Path || args.path || target;
+      target = p.split('/').pop() || p;
+    } else if (name === 'search_web' || name === 'web_search') {
+      type = 'Search';
+      target = args.query || target || 'web';
+    } else {
+      type = name;
+      if (!target && Object.keys(args).length > 0) {
+        target = Object.values(args)[0];
+        if (typeof target !== 'string') target = JSON.stringify(target);
+      }
+    }
+    return { type, target, raw: tc };
+  }
+
   function buildAssistantTurnBody(turn, forceOpen = false) {
     let bodyHtml = '';
 
@@ -646,96 +681,91 @@
     const content = (turn.content || turn.text || '').trim();
     const isGenerating = !content;
 
+    // Claude 앱 스타일 1줄 라이브 상태 텍스트
+    let liveLabel = '● Thinking...';
+    if (toolCount > 0) {
+      const lastToolInfo = formatClaudeTool(toolList[toolList.length - 1]);
+      liveLabel = `⚡ Running ${lastToolInfo.type}: ${lastToolInfo.target}...`;
+    }
+
     if (hasWorkProcess) {
-      const parts = [];
-      if (hasThinkings) {
-        parts.push(uniqueThinkings.length > 1 ? `사고 과정 ${uniqueThinkings.length}단계` : '사고 과정');
-      }
+      // Claude 앱 스타일 완료 요약 라벨
+      let workedLabel = '';
       if (toolCount > 0) {
-        parts.push(`도구 실행 ${toolCount}건`);
+        workedLabel = `Worked (${toolCount} tool${toolCount > 1 ? 's' : ''})`;
+      } else {
+        workedLabel = 'Thought';
       }
-      const summaryLabel = `⚙️ 작업 과정 (${parts.join(' · ')})`;
-      // 대시보드 스타일: 화면을 과도하게 가리지 않도록 디폴트로 접힌 상태 유지
-      const shouldOpen = forceOpen;
 
       let innerHtml = '';
       if (hasThinkings) {
         const fullThinking = uniqueThinkings.join('\n\n---\n\n');
         innerHtml += `
-          <div class="process-section">
-            <div class="process-subtitle">💭 사고 과정 ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>생각 중</span>' : ''}</div>
-            <div class="process-text ${isGenerating ? 'thinking-preview-text' : ''}">${escapeHtml(fullThinking)}</div>
+          <div class="claude-tree-item thinking">
+            <div class="claude-item-head">
+              <span class="claude-check-icon">💭</span>
+              <span class="claude-item-title">사고 과정 (Extended Thinking)</span>
+            </div>
+            <div class="claude-item-body thinking-body">
+              ${escapeHtml(fullThinking)}
+            </div>
           </div>
         `;
       }
 
       if (toolCount > 0) {
-        const renderToolItem = (tc, idx) => {
-          const title = tc.label || tc.summary || tc.name || `도구 #${idx + 1}`;
+        const renderClaudeToolItem = (tc, idx) => {
+          const info = formatClaudeTool(tc);
           let cmdStr = '';
           if (tc.args && typeof tc.args === 'object') {
             if (tc.args.CommandLine) cmdStr = tc.args.CommandLine;
             else if (tc.args.AbsolutePath) cmdStr = tc.args.AbsolutePath;
             else if (tc.args.query) cmdStr = tc.args.query;
-            else if (Object.keys(tc.args).length > 0) cmdStr = JSON.stringify(tc.args);
+            else if (Object.keys(tc.args).length > 0) cmdStr = JSON.stringify(tc.args, null, 2);
           }
           return `
-            <div class="process-tool-item">
-              <div class="tool-item-header">
-                <span class="tool-badge">${escapeHtml(tc.name || 'tool')}</span>
-                <span class="tool-title">${escapeHtml(title)}</span>
+            <details class="claude-tree-item tool" ${idx === toolCount - 1 && !isGenerating ? 'open' : ''}>
+              <summary class="claude-item-head">
+                <span class="claude-check-icon">✓</span>
+                <span class="claude-tool-badge">${escapeHtml(info.type)}</span>
+                <span class="claude-tool-target">${escapeHtml(info.target)}</span>
+                <span class="claude-item-arrow">›</span>
+              </summary>
+              <div class="claude-item-body tool-body">
+                ${cmdStr ? `<div class="claude-log-block"><div class="claude-log-title">Input</div><pre class="claude-log-pre">${escapeHtml(cmdStr)}</pre></div>` : ''}
+                ${tc.output ? `<div class="claude-log-block"><div class="claude-log-title">Output</div><pre class="claude-log-pre output">${escapeHtml(tc.output)}</pre></div>` : ''}
               </div>
-              ${cmdStr ? `<pre class="tool-cmd">${escapeHtml(cmdStr)}</pre>` : ''}
-              ${tc.output ? `<pre class="tool-output">${escapeHtml(tc.output)}</pre>` : ''}
-            </div>
+            </details>
           `;
         };
 
-        let toolsListHtml = '';
-        if (toolCount <= 2) {
-          toolsListHtml = toolList.map(renderToolItem).join('');
-        } else {
-          const earlierTools = toolList.slice(0, -2);
-          const recentTools = toolList.slice(-2);
-          const earlierHtml = earlierTools.map((tc, idx) => renderToolItem(tc, idx)).join('');
-          const recentHtml = recentTools.map((tc, idx) => renderToolItem(tc, earlierTools.length + idx)).join('');
-          toolsListHtml = `
-            <button type="button" class="btn-toggle-tools" data-count="${earlierTools.length}">
-              ▼ 이전 도구 실행 내역 ${earlierTools.length}건 더보기
-            </button>
-            <div class="earlier-tools-wrap" style="display: none;">
-              ${earlierHtml}
-            </div>
-            ${recentHtml}
-          `;
-        }
-
+        const toolsHtml = toolList.map(renderClaudeToolItem).join('');
         innerHtml += `
-          <div class="process-section">
-            <div class="process-subtitle">🛠️ 도구 실행 내역 (${toolCount}건) ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>실행 중</span>' : ''}</div>
-            <div class="process-tools-list">
-              ${toolsListHtml}
-            </div>
+          <div class="claude-tools-container">
+            ${toolsHtml}
           </div>
         `;
       }
 
       bodyHtml += `
-        <details class="work-process-block" ${shouldOpen ? 'open' : ''}>
-          <summary class="work-process-summary">
-            <span class="work-process-label">${escapeHtml(summaryLabel)}</span>
-            ${isGenerating ? '<span class="live-badge"><span class="live-indicator-dot"></span>진행 중</span>' : ''}
+        <details class="claude-work-pill work-process-block ${isGenerating ? 'running' : ''}" ${forceOpen ? 'open' : ''}>
+          <summary class="claude-pill-summary work-process-summary">
+            <div class="claude-pill-left">
+              ${isGenerating ? '<span class="claude-live-spinner"></span>' : '<span class="claude-pill-icon">⚙️</span>'}
+              <span class="claude-pill-text work-process-label">${escapeHtml(isGenerating ? liveLabel : workedLabel)}</span>
+            </div>
+            <span class="claude-pill-arrow">›</span>
           </summary>
-          <div class="work-process-body">
+          <div class="claude-execution-tree work-process-body">
             ${innerHtml}
           </div>
         </details>
       `;
     } else if (isGenerating) {
       bodyHtml += `
-        <div class="live-thinking-chip live-thinking-card">
-          <span class="thinking-spinner-mini"></span>
-          <span class="thinking-chip-text">생각하는 중...</span>
+        <div class="claude-live-pill live-thinking-chip live-thinking-card">
+          <span class="claude-live-spinner thinking-spinner-mini"></span>
+          <span class="claude-live-text thinking-chip-text">${escapeHtml(liveLabel)}</span>
         </div>
       `;
     }
@@ -1588,14 +1618,14 @@
         timestamp: new Date().toISOString()
       });
 
-      // Show live thinking indicator (Dashboard Slim Chip)
+      // Show live thinking indicator (Claude Style Live Pill)
       const typingEl = document.createElement('div');
       typingEl.className = 'message assistant typing-msg';
       typingEl.innerHTML = `
         <div class="bubble">
-          <div class="live-thinking-chip live-thinking-card">
-            <span class="thinking-spinner-mini"></span>
-            <span class="thinking-chip-text">생각하는 중...</span>
+          <div class="claude-live-pill live-thinking-chip live-thinking-card">
+            <span class="claude-live-spinner thinking-spinner-mini"></span>
+            <span class="claude-live-text thinking-chip-text">● Thinking...</span>
           </div>
         </div>
       `;

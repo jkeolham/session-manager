@@ -898,53 +898,261 @@ a:hover code,
   font-size: 13px;
 }
 
-/* Unified Work Process Accordion (Slim Dashboard Style) */
+/* Claude App Style Work Execution & Process Tree */
+.claude-work-pill,
 details.work-process-block {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  margin: 6px 0 10px 0;
+  margin: 4px 0 10px 0;
   overflow: hidden;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  width: fit-content;
+  max-width: 100%;
 }
 
+.claude-work-pill[open],
 details.work-process-block[open] {
-  background: rgba(0, 0, 0, 0.35);
-  border-color: rgba(124, 172, 248, 0.3);
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
+.claude-pill-summary,
 .work-process-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px;
+  gap: 12px;
+  padding: 6px 12px;
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: #9aa0a6;
   cursor: pointer;
   user-select: none;
+  list-style: none;
   background-color: transparent;
-  transition: color 0.15s, background-color 0.15s;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
+.claude-pill-summary::-webkit-details-marker,
+.work-process-summary::-webkit-details-marker {
+  display: none;
+}
+
+.claude-pill-summary:hover,
 .work-process-summary:hover {
-  color: var(--text-primary);
+  color: #e3e3e3;
   background-color: rgba(255, 255, 255, 0.03);
 }
 
+.claude-work-pill[open] .claude-pill-summary,
 details.work-process-block[open] .work-process-summary {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  color: #7cacf8;
+  color: #e3e3e3;
 }
 
+.claude-pill-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-pill-icon {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.claude-pill-text {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.claude-pill-arrow {
+  font-size: 14px;
+  color: #71767b;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.claude-work-pill[open] .claude-pill-arrow,
+details.work-process-block[open] .claude-pill-arrow {
+  transform: rotate(90deg);
+  color: #e3e3e3;
+}
+
+/* Claude Execution Timeline Tree */
+.claude-execution-tree,
 .work-process-body {
   padding: 10px 12px;
   font-size: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 280px;
+  max-height: 320px;
   overflow-y: auto;
+}
+
+.claude-tree-item {
+  position: relative;
+  padding-left: 20px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+  margin-left: 6px;
+}
+
+.claude-tree-item:last-child {
+  border-left-color: transparent;
+}
+
+.claude-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #c4c7c5;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.claude-item-head::-webkit-details-marker {
+  display: none;
+}
+
+.claude-check-icon {
+  position: absolute;
+  left: -8px;
+  width: 14px;
+  height: 14px;
+  background: #18181b;
+  color: #34d399;
+  font-size: 10.5px;
+  font-weight: bold;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.claude-tool-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  letter-spacing: 0.02em;
+}
+
+.claude-tool-target {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  color: #e2c08d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 75%;
+}
+
+.claude-item-arrow {
+  font-size: 13px;
+  color: #64748b;
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.claude-tree-item[open] .claude-item-arrow {
+  transform: rotate(90deg);
+}
+
+.claude-item-body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.claude-item-body.thinking-body {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #94a3b8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.claude-log-block {
+  margin-bottom: 6px;
+}
+
+.claude-log-block:last-child {
+  margin-bottom: 0;
+}
+
+.claude-log-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.claude-log-pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.claude-log-pre.output {
+  color: #94a3b8;
+}
+
+/* Claude Live Pill & Live Spinner */
+.claude-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  font-size: 12px;
+  color: #c7d2fe;
+  margin: 4px 0 8px 0;
+  user-select: none;
+  animation: chipPulse 2.5s infinite ease-in-out;
+}
+
+.claude-live-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(165, 180, 252, 0.25);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.claude-live-text {
+  font-weight: 500;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .process-section {
