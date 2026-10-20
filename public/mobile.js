@@ -1578,19 +1578,92 @@
     const existingMarks = chatHistory.querySelectorAll('mark.search-highlight');
     existingMarks.forEach(mark => {
       const parent = mark.parentNode;
-      mark.replaceWith(document.createTextNode(mark.textContent));
-      if (parent) parent.normalize();
+      if (!parent) return;
+      const textNode = document.createTextNode(mark.textContent);
+      parent.replaceChild(textNode, mark);
+      parent.normalize();
     });
   }
 
-  function escapeRegex(str) {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function buildSearchRegex(query) {
+    if (!query) return null;
+    const trimmed = query.trim();
+    if (!trimmed) return null;
+    let escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Normalize dashes (hyphen, en-dash, em-dash, minus)
+    escaped = escaped.replace(/[-—–−]+/g, '[-—–−]+');
+    // Normalize whitespace (standard space, NBSP \u00A0, multiple spaces)
+    escaped = escaped.replace(/\s+/g, '[\\s\\u00A0]+');
+    return new RegExp(`(${escaped})`, 'gi');
+  }
+
+  function collectTextNodes(element) {
+    const textNodes = [];
+    function recurse(el) {
+      if (!el) return;
+      for (let child = el.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) {
+          if (child.nodeValue && child.nodeValue.trim().length > 0) {
+            textNodes.push(child);
+          }
+        } else if (child.nodeType === 1) {
+          const tag = child.tagName;
+          if (tag !== 'SCRIPT' && tag !== 'STYLE' && tag !== 'MARK') {
+            recurse(child);
+          }
+        }
+      }
+    }
+    recurse(element);
+    return textNodes;
+  }
+
+  function highlightTextNode(node, regex) {
+    if (!node || !node.nodeValue) return [];
+    const val = node.nodeValue;
+    regex.lastIndex = 0;
+    if (!regex.test(val)) return [];
+
+    regex.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    const createdMarks = [];
+    let lastIdx = 0;
+    let match;
+
+    while ((match = regex.exec(val)) !== null) {
+      const matchIndex = match.index;
+      const matchText = match[0];
+
+      if (matchIndex > lastIdx) {
+        fragment.appendChild(document.createTextNode(val.slice(lastIdx, matchIndex)));
+      }
+
+      const mark = document.createElement('mark');
+      mark.className = 'search-highlight';
+      mark.textContent = matchText;
+      fragment.appendChild(mark);
+      createdMarks.push(mark);
+
+      lastIdx = matchIndex + matchText.length;
+      if (matchText.length === 0) {
+        regex.lastIndex++;
+      }
+    }
+
+    if (lastIdx < val.length) {
+      fragment.appendChild(document.createTextNode(val.slice(lastIdx)));
+    }
+
+    if (node.parentNode) {
+      node.parentNode.replaceChild(fragment, node);
+    }
+    return createdMarks;
   }
 
   function performChatSearch(query) {
     clearSearchHighlights();
-    const term = (query || '').trim();
-    if (!term || !chatHistory) {
+    const regex = buildSearchRegex(query);
+    if (!regex || !chatHistory) {
       resetSearchHideTimer();
       return;
     }
@@ -1598,56 +1671,20 @@
     clearTimeout(searchHideTimer);
     searchHideTimer = null;
 
-    const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
-    const targetBlocks = chatHistory.querySelectorAll('.user-turn-text, .turn-markdown, .work-process-body');
+    // Search all turn contents including user text, assistant markdown, thinking/tools, code blocks
+    const targetBlocks = chatHistory.querySelectorAll('.user-content-text, .turn-markdown, .work-process-body, .code-block pre code');
+    matchedMarks = [];
 
     targetBlocks.forEach(block => {
-      const walker = document.createTreeWalker(
-        block,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode: function (node) {
-            if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-            if (node.parentNode && (node.parentNode.tagName === 'MARK' || node.parentNode.tagName === 'SCRIPT' || node.parentNode.tagName === 'STYLE')) {
-              return NodeFilter.FILTER_REJECT;
-            }
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
-
-      const textNodes = [];
-      let currentNode;
-      while ((currentNode = walker.nextNode())) {
-        textNodes.push(currentNode);
-      }
-
+      const textNodes = collectTextNodes(block);
       textNodes.forEach(node => {
-        const val = node.nodeValue;
-        if (regex.test(val)) {
-          const fragment = document.createDocumentFragment();
-          let lastIdx = 0;
-          regex.lastIndex = 0;
-          let match;
-          while ((match = regex.exec(val)) !== null) {
-            if (match.index > lastIdx) {
-              fragment.appendChild(document.createTextNode(val.slice(lastIdx, match.index)));
-            }
-            const mark = document.createElement('mark');
-            mark.className = 'search-highlight';
-            mark.textContent = match[0];
-            fragment.appendChild(mark);
-            lastIdx = regex.lastIndex;
-          }
-          if (lastIdx < val.length) {
-            fragment.appendChild(document.createTextNode(val.slice(lastIdx)));
-          }
-          node.parentNode.replaceChild(fragment, node);
+        const marks = highlightTextNode(node, regex);
+        if (marks.length > 0) {
+          matchedMarks.push(...marks);
         }
       });
     });
 
-    matchedMarks = Array.from(chatHistory.querySelectorAll('mark.search-highlight'));
     const total = matchedMarks.length;
 
     if (total === 0) {
