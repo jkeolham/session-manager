@@ -1,11 +1,13 @@
 // Service Worker for N100 Session Manager PWA
-const CACHE_NAME = 'session-manager-v14';
+const CACHE_NAME = 'session-manager-v15';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/mobile.css',
   '/mobile.js',
   '/marked.umd.js',
+  '/vendor/katex/katex.min.css',
+  '/vendor/katex/katex.min.js',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

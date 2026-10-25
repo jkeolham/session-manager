@@ -107,19 +107,77 @@
     });
   }
 
-  function renderMarkdown(rawText) {
-    if (!rawText) return '';
-    const text = String(rawText);
+  // --- LaTeX / Math Symbol Map for Robust Fallback & Direct Replacements ---
+  const LATEX_SYMBOLS = {
+    '\\rightarrow': '→', '\\to': '→',
+    '\\leftarrow': '←', '\\gets': '←',
+    '\\Rightarrow': '⇒', '\\Leftarrow': '⇐',
+    '\\leftrightarrow': '↔', '\\Leftrightarrow': '⇔',
+    '\\uparrow': '↑', '\\downarrow': '↓',
+    '\\nearrow': '↗', '\\searrow': '↘', '\\swarrow': '↙', '\\nwarrow': '↖',
+    '\\pm': '±', '\\mp': '∓',
+    '\\times': '×', '\\div': '÷', '\\cdot': '·', '\\bullet': '•',
+    '\\neq': '≠', '\\ne': '≠',
+    '\\le': '≤', '\\leq': '≤',
+    '\\ge': '≥', '\\geq': '≥',
+    '\\approx': '≈', '\\sim': '∼', '\\equiv': '≡',
+    '\\ll': '≪', '\\gg': '≫',
+    '\\in': '∈', '\\notin': '∉',
+    '\\subset': '⊂', '\\subseteq': '⊆',
+    '\\supset': '⊃', '\\supseteq': '⊇',
+    '\\cup': '∪', '\\cap': '∩', '\\emptyset': '∅',
+    '\\forall': '∀', '\\exists': '∃', '\\nexists': '∄',
+    '\\neg': '¬', '\\land': '∧', '\\lor': '∨',
+    '\\infty': '∞', '\\sum': '∑', '\\prod': '∏', '\\int': '∫',
+    '\\partial': '∂', '\\nabla': '∇',
+    '\\degree': '°', '\\circ': '°', '\\ast': '∗', '\\star': '⋆',
+    '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ',
+    '\\epsilon': 'ε', '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ',
+    '\\iota': 'ι', '\\kappa': 'κ', '\\lambda': 'λ', '\\mu': 'μ',
+    '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π', '\\rho': 'ρ',
+    '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
+    '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
+    '\\Gamma': 'Γ', '\\Delta': 'Δ', '\\Theta': 'Θ', '\\Lambda': 'Λ',
+    '\\Xi': 'Ξ', '\\Pi': 'Π', '\\Sigma': 'Σ', '\\Phi': 'Φ',
+    '\\Psi': 'Ψ', '\\Omega': 'Ω',
+    '\\dots': '…', '\\ldots': '…', '\\cdots': '⋯'
+  };
 
-    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+  function replaceLatexSymbols(str) {
+    if (!str) return '';
+    let res = str;
+    for (const [cmd, sym] of Object.entries(LATEX_SYMBOLS)) {
+      const esc = cmd.replace(/\\/g, '\\\\');
+      const reg = new RegExp(esc + '(?![a-zA-Z])', 'g');
+      res = res.replace(reg, sym);
+    }
+    return res;
+  }
+
+  function renderMathExpression(expr, isDisplay = false) {
+    const trimmed = (expr || '').trim();
+    if (!trimmed) return '';
+
+    // 1. KaTeX 사용 가능 시 완전한 KaTeX 렌더링
+    if (typeof katex !== 'undefined' && typeof katex.renderToString === 'function') {
       try {
-        return marked.parse(text);
+        return katex.renderToString(trimmed, {
+          displayMode: isDisplay,
+          throwOnError: false
+        });
       } catch (err) {
-        console.warn('Marked parse error, falling back:', err);
+        console.warn('KaTeX render error:', err);
       }
     }
 
-    // Fallback parser if marked is unavailable
+    // 2. Fallback: LaTeX 심볼 변환 + 인라인/블록 태그
+    const replaced = replaceLatexSymbols(escapeHtml(trimmed));
+    return isDisplay
+      ? `<div class="math-block">${replaced}</div>`
+      : `<span class="inline-math">${replaced}</span>`;
+  }
+
+  function fallbackParseMarkdown(text) {
     let parsed = text;
     // 1. Code blocks
     const codeBlocks = [];
@@ -178,6 +236,75 @@
 
     codeBlocks.forEach((block, idx) => {
       parsed = parsed.replace(`__CODE_BLOCK_${idx}__`, block);
+    });
+
+    return parsed;
+  }
+
+  function renderMarkdown(rawText) {
+    if (!rawText) return '';
+    let text = String(rawText);
+
+    // 1. 코드 블록 및 인라인 코드 임시 보호 (코드 안의 $나 \를 수식 변환으로부터 보호)
+    const codeProtections = [];
+    text = text.replace(/```[a-zA-Z0-9_\-\.]*\n[\s\S]*?```/g, (m) => {
+      const idx = codeProtections.length;
+      codeProtections.push(m);
+      return `%%PROTECTED_CODE_${idx}%%`;
+    });
+    text = text.replace(/`[^`\n]+`/g, (m) => {
+      const idx = codeProtections.length;
+      codeProtections.push(m);
+      return `%%PROTECTED_CODE_${idx}%%`;
+    });
+
+    // 2. 수식 및 기호 추출 (블록 수식 $$...$$ 및 인라인 수식 $...$)
+    const mathTokens = [];
+
+    // 2-1. 블록 수식 $$ ... $$
+    text = text.replace(/\$\$([\s\S]+?)\$\$/g, (m, expr) => {
+      const idx = mathTokens.length;
+      const html = `<div class="math-block">${renderMathExpression(expr, true)}</div>`;
+      mathTokens.push(html);
+      return `%%MATH_TOKEN_${idx}%%`;
+    });
+
+    // 2-2. 인라인 수식 $ ... $
+    text = text.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)(?<!\$)\$(?!\$)/g, (m, expr) => {
+      const trimmed = expr.trim();
+      // 단순 금액 기호 ($10, $50.00 등)는 수식 치환 제외
+      if (/^\d+(?:\.\d+)?$/.test(trimmed)) return m;
+
+      const idx = mathTokens.length;
+      const html = renderMathExpression(trimmed, false);
+      mathTokens.push(html);
+      return `%%MATH_TOKEN_${idx}%%`;
+    });
+
+    // 2-3. $ 기호 없이 본문에 노출된 일반 LaTeX 기호 치환 (\rightarrow 등)
+    text = replaceLatexSymbols(text);
+
+    // 2-4. 마크다운 파서 전에 코드 블록 복원
+    codeProtections.forEach((codeStr, idx) => {
+      text = text.replace(`%%PROTECTED_CODE_${idx}%%`, codeStr);
+    });
+
+    // 3. Marked GFM 파싱 실행
+    let parsed = '';
+    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+      try {
+        parsed = marked.parse(text);
+      } catch (err) {
+        console.warn('Marked parse error, falling back:', err);
+        parsed = fallbackParseMarkdown(text);
+      }
+    } else {
+      parsed = fallbackParseMarkdown(text);
+    }
+
+    // 4. 수식 토큰 복원
+    mathTokens.forEach((tokenHtml, idx) => {
+      parsed = parsed.replace(`%%MATH_TOKEN_${idx}%%`, tokenHtml);
     });
 
     return parsed;

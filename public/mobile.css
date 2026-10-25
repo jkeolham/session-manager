@@ -898,6 +898,36 @@ a:hover code,
   font-size: 13px;
 }
 
+/* LaTeX / KaTeX Math & Special Symbols Styling */
+.math-block {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 12px 0;
+  padding: 8px 12px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.inline-math {
+  display: inline;
+  padding: 0 2px;
+  font-family: inherit;
+  color: #e3e3e3;
+}
+
+.katex {
+  font-size: 1.05em;
+  color: #f1f3f4;
+  line-height: 1.2;
+}
+
+.katex .mrel,
+.katex .mbin {
+  color: #7cacf8;
+}
+
 /* Claude App Style Work Execution & Process Tree */
 .claude-work-pill,
 details.work-process-block {
