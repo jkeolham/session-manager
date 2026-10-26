@@ -441,6 +441,8 @@
           statusHtml = `<span class="session-status-time">${escapeHtml(timeAgo)}</span>`;
         }
 
+        const copyId = item.cid || item.name || '';
+
         html += `
           <div class="session-item ${activeClass}" data-session="${escapeHtml(JSON.stringify(item))}">
             <div class="session-item-info">
@@ -449,6 +451,12 @@
             </div>
             <div class="session-item-right">
               ${statusHtml ? `<div class="session-status-indicator">${statusHtml}</div>` : ''}
+              ${copyId ? `<button class="session-copy-id-btn" type="button" aria-label="세션 ID 복사" title="세션 ID 복사 (${escapeHtml(copyId)})" data-copy-id="${escapeHtml(copyId)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>` : ''}
               ${cat.key === 'agy' && item.cid ? `<button class="session-delete-btn" type="button" aria-label="대화 삭제" title="대화 삭제">🗑</button>` : ''}
             </div>
           </div>
@@ -465,6 +473,25 @@
     sessionListEl.innerHTML = html;
 
     // Attach click listeners
+    sessionListEl.querySelectorAll('.session-copy-id-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const copyText = btn.getAttribute('data-copy-id');
+        if (!copyText) return;
+        navigator.clipboard.writeText(copyText).then(() => {
+          const origHtml = btn.innerHTML;
+          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.innerHTML = origHtml;
+            btn.classList.remove('copied');
+          }, 1500);
+        }).catch(err => {
+          console.error('Failed to copy session id:', err);
+        });
+      });
+    });
+
     sessionListEl.querySelectorAll('.session-delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
