@@ -703,7 +703,8 @@
       }
 
       // Refresh session list in background
-      loadSessions();
+      await fetchSessions();
+      showToast('세션 이름이 변경되었습니다.');
     } catch (err) {
       console.error('Failed to rename session:', err);
       alert(`세션 이름 변경 중 오류가 발생했습니다: ${err.message}`);

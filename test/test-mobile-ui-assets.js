@@ -76,6 +76,8 @@ function run() {
   assert(js.includes('initSessionActionMenu'), 'mobile.js should include initSessionActionMenu');
   assert(js.includes('openSessionActionMenu'), 'mobile.js should include openSessionActionMenu');
   assert(js.includes('closeSessionActionMenu'), 'mobile.js should include closeSessionActionMenu');
+  assert(js.includes('renameSession'), 'mobile.js should include renameSession');
+  assert(!js.includes('loadSessions('), 'mobile.js should not call non-existent loadSessions; use fetchSessions');
   assert(js.includes('showToast'), 'mobile.js should include showToast');
   assert(js.includes('extractUserTurnAttachments'), 'mobile.js should include extractUserTurnAttachments');
   assert(js.includes('loadAttachmentText'), 'mobile.js should include loadAttachmentText');
