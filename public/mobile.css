@@ -382,6 +382,126 @@ mark.search-highlight-current {
   color: var(--text-secondary);
 }
 
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#btn-drawer-new {
+  color: var(--accent-user);
+  transition: all 0.15s ease;
+}
+
+#btn-drawer-new:hover {
+  background-color: rgba(138, 180, 248, 0.12);
+  color: #a8c7fa;
+}
+
+#btn-drawer-new:active {
+  transform: scale(0.92);
+}
+
+/* Drawer Bottom Composer (대시보드 스타일 새 대화 입력창) */
+.drawer-composer {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
+.drawer-composer-box {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.drawer-composer-box:focus-within {
+  border-color: var(--accent-user);
+  box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.15);
+}
+
+#drawer-composer-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.45;
+  font-family: inherit;
+  max-height: 100px;
+  min-height: 20px;
+}
+
+#drawer-composer-input::placeholder {
+  color: var(--text-muted);
+}
+
+.drawer-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.drawer-composer-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-model-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.drawer-model-chip:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.drawer-send-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background-color: var(--accent-user);
+  color: #ffffff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.drawer-send-btn:disabled {
+  background-color: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.drawer-send-btn:not(:disabled):active {
+  transform: scale(0.92);
+}
+
 #drawer-search {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border-color);

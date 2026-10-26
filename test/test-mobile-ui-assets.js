@@ -37,10 +37,13 @@ function run() {
   assert(html.includes('voice-recording-bar'), 'index.html must include voice-recording-bar');
   assert(html.includes('session-action-menu'), 'index.html must include session-action-menu');
   assert(html.includes('global-toast'), 'index.html must include global-toast');
+  assert(html.includes('drawer-composer'), 'index.html must include drawer-composer');
+  assert(html.includes('btn-drawer-new'), 'index.html must include btn-drawer-new');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
   assert(css.includes('bubble'), 'mobile.css should style chat bubbles');
+  assert(css.includes('drawer-composer'), 'mobile.css should style drawer-composer');
   assert(css.includes('live-thinking-card'), 'mobile.css should style live-thinking-card');
   assert(css.includes('load-earlier-btn'), 'mobile.css should style load-earlier-btn');
   assert(css.includes('turn-review-btn'), 'mobile.css should style turn-review-btn');
@@ -78,6 +81,8 @@ function run() {
   assert(js.includes('closeSessionActionMenu'), 'mobile.js should include closeSessionActionMenu');
   assert(js.includes('renameSession'), 'mobile.js should include renameSession');
   assert(!js.includes('loadSessions('), 'mobile.js should not call non-existent loadSessions; use fetchSessions');
+  assert(js.includes('startNewConversation'), 'mobile.js should include startNewConversation');
+  assert(js.includes('initDrawerComposer'), 'mobile.js should include initDrawerComposer');
   assert(js.includes('showToast'), 'mobile.js should include showToast');
   assert(js.includes('extractUserTurnAttachments'), 'mobile.js should include extractUserTurnAttachments');
   assert(js.includes('loadAttachmentText'), 'mobile.js should include loadAttachmentText');

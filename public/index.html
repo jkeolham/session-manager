@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/mobile.css?v=20261026_v31">
+  <link rel="stylesheet" href="/mobile.css?v=20261026_v32">
 </head>
 <body>
   <div id="app">
@@ -85,12 +85,20 @@
           <h2>N100 세션 목록</h2>
           <span id="session-count-badge" class="count-badge">0</span>
         </div>
-        <button id="btn-drawer-close" class="icon-btn" aria-label="닫기">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <div class="drawer-header-actions">
+          <button id="btn-drawer-new" class="icon-btn" aria-label="새 대화 시작" title="새 대화 시작">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <button id="btn-drawer-close" class="icon-btn" aria-label="닫기">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
       <div id="drawer-search">
         <input type="text" id="session-search" placeholder="세션 검색..." autocomplete="off">
@@ -110,6 +118,31 @@
           <div class="loading-spinner">세션 불러오는 중...</div>
         </div>
       </div>
+
+      <!-- Drawer Bottom Composer (Dashboard style new conversation box) -->
+      <div id="drawer-composer" class="drawer-composer">
+        <div class="drawer-composer-box">
+          <textarea id="drawer-composer-input" rows="1" placeholder="Ask anything, @ to mention, / for actions" autocomplete="off"></textarea>
+          <div class="drawer-composer-toolbar">
+            <div class="drawer-composer-toolbar-left">
+              <button id="btn-drawer-model-picker" class="model-picker-chip drawer-model-chip" type="button" aria-label="모델 선택">
+                <span id="drawer-model-name" class="model-name-text">Gemini 3.8 Flash High</span>
+                <svg class="model-caret-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+              </button>
+            </div>
+            <div class="drawer-composer-toolbar-right">
+              <button id="btn-drawer-send" class="send-btn drawer-send-btn" type="button" aria-label="새 대화 시작" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                  <polyline points="12 5 19 12 12 19"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </aside>
 
     <!-- Main Chat Container -->
@@ -117,7 +150,7 @@
       <div id="empty-state">
         <div class="empty-icon">💬</div>
         <h3>선택된 세션이 없습니다</h3>
-        <p>상단 메뉴(☰)를 눌러 대화할 세션을 선택하세요.</p>
+        <p>상단 메뉴(☰)를 눌러 대화할 세션을 선택하거나 아래 입력창에서 새 대화를 시작하세요.</p>
         <button id="btn-open-drawer-action" class="primary-btn">세션 목록 열기</button>
       </div>
       <div id="chat-history"></div>
@@ -325,6 +358,6 @@
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/mobile.js?v=20261026_v40"></script>
+  <script src="/mobile.js?v=20261026_v41"></script>
 </body>
 </html>

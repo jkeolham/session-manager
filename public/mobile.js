@@ -51,6 +51,13 @@
   const btnVoiceStop = document.getElementById('btn-voice-stop');
   const btnVoiceCancel = document.getElementById('btn-voice-cancel');
 
+  // Drawer New Conversation Elements
+  const drawerComposerInput = document.getElementById('drawer-composer-input');
+  const btnDrawerSend = document.getElementById('btn-drawer-send');
+  const btnDrawerNew = document.getElementById('btn-drawer-new');
+  const btnDrawerModelPicker = document.getElementById('btn-drawer-model-picker');
+  const drawerModelName = document.getElementById('drawer-model-name');
+
   let allSessions = { agy: [], claude: [], codex: [], other: [] };
   let currentSession = null;
   let activeEventSource = null;
@@ -1872,7 +1879,7 @@
   function updateSendButtonState() {
     const hasText = !!composerInput.value.trim();
     const hasAttachments = pendingAttachments.length > 0;
-    btnSend.disabled = (!hasText && !hasAttachments) || !currentSession;
+    btnSend.disabled = (!hasText && !hasAttachments);
   }
 
   if (btnAttach && filePicker) {
@@ -2105,11 +2112,87 @@
 
   let isSending = false;
 
+  async function startNewConversation(text, requestedModel = null) {
+    if (!text || !text.trim() || isSending) return;
+    isSending = true;
+    if (btnSend) btnSend.disabled = true;
+    if (btnDrawerSend) btnDrawerSend.disabled = true;
+    if (composerInput) composerInput.disabled = true;
+    if (drawerComposerInput) drawerComposerInput.disabled = true;
+
+    showToast('새 대화를 시작하는 중...');
+
+    try {
+      const modelObj = getSelectedModel();
+      const modelToUse = requestedModel || modelObj?.model || 'MODEL_PLACEHOLDER_M318';
+
+      const res = await fetch('/api/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: text.trim(),
+          model: modelToUse
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || '새 대화 생성 실패');
+      }
+
+      const newConv = data.result?.response?.newConversation;
+      const cid = newConv?.conversationId;
+
+      await fetchSessions();
+
+      if (cid) {
+        const newSessionObj = {
+          cid: cid,
+          name: `rc_${cid.slice(0, 8)}`,
+          title: text.trim().slice(0, 40),
+          status: 'running',
+          type: 'daemon'
+        };
+        selectSession(newSessionObj);
+        closeDrawer();
+        showToast('새 대화가 시작되었습니다.');
+      } else {
+        closeDrawer();
+        showToast('새 대화가 생성되었습니다.');
+      }
+    } catch (err) {
+      console.error('Failed to start new conversation:', err);
+      alert(`새 대화 시작 오류: ${err.message}`);
+    } finally {
+      isSending = false;
+      if (composerInput) {
+        composerInput.disabled = false;
+        composerInput.value = '';
+        composerInput.style.height = 'auto';
+      }
+      if (drawerComposerInput) {
+        drawerComposerInput.disabled = false;
+        drawerComposerInput.value = '';
+        drawerComposerInput.style.height = 'auto';
+      }
+      updateSendButtonState();
+      if (btnDrawerSend) btnDrawerSend.disabled = true;
+      if (btnAttach) btnAttach.disabled = false;
+    }
+  }
+
   async function sendMessage() {
     if (isSending) return;
     const text = composerInput.value.trim();
     const hasAttachments = pendingAttachments.length > 0;
-    if ((!text && !hasAttachments) || !currentSession) return;
+    if (!text && !hasAttachments) return;
+
+    // 만약 세션이 선택되지 않은 상태라면 자동으로 새 대화 시작!
+    if (!currentSession) {
+      if (text) {
+        await startNewConversation(text);
+      }
+      return;
+    }
 
     // 만약 에이전트가 생각 중이거나 작업 중이면 대기열(Queue)에 등록
     if (isSessionBusy()) {
@@ -3305,12 +3388,17 @@
     if (!modelPickerName || !current) return;
 
     const effortLabel = getEffortLabel(selectedEffort);
+    let displayText = '';
     if (current.id.startsWith('gemini-3.8-flash')) {
-      modelPickerName.innerText = `Gemini 3.8 Flash ${effortLabel}`;
+      displayText = `Gemini 3.8 Flash ${effortLabel}`;
     } else if (current.displayName.includes('Claude') || current.displayName.includes('GPT')) {
-      modelPickerName.innerText = `${current.displayName.replace(/ \(.*?\)/, '')} (${effortLabel})`;
+      displayText = `${current.displayName.replace(/ \(.*?\)/, '')} (${effortLabel})`;
     } else {
-      modelPickerName.innerText = current.chipLabel || `${current.displayName} ${current.subLabel || ''}`.trim();
+      displayText = current.chipLabel || `${current.displayName} ${current.subLabel || ''}`.trim();
+    }
+    modelPickerName.innerText = displayText;
+    if (drawerModelName) {
+      drawerModelName.innerText = displayText;
     }
   }
 
@@ -3709,10 +3797,52 @@
     }
   }
 
+  function initDrawerComposer() {
+    if (drawerComposerInput && btnDrawerSend) {
+      drawerComposerInput.addEventListener('input', () => {
+        drawerComposerInput.style.height = 'auto';
+        drawerComposerInput.style.height = Math.min(drawerComposerInput.scrollHeight, 100) + 'px';
+        btnDrawerSend.disabled = !drawerComposerInput.value.trim() || isSending;
+      });
+
+      drawerComposerInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          const text = drawerComposerInput.value.trim();
+          if (text && !isSending) {
+            startNewConversation(text);
+          }
+        }
+      });
+
+      btnDrawerSend.addEventListener('click', () => {
+        const text = drawerComposerInput.value.trim();
+        if (text && !isSending) {
+          startNewConversation(text);
+        }
+      });
+    }
+
+    if (btnDrawerNew && drawerComposerInput) {
+      btnDrawerNew.addEventListener('click', (e) => {
+        e.stopPropagation();
+        drawerComposerInput.focus();
+      });
+    }
+
+    if (btnDrawerModelPicker) {
+      btnDrawerModelPicker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModelPicker();
+      });
+    }
+  }
+
   // --- Initial Load ---
   initModelPicker();
   initVoiceRecognition();
   initSessionActionMenu();
+  initDrawerComposer();
 
   const currentSessionTitleEl = document.getElementById('current-session-title');
   if (currentSessionTitleEl) {
