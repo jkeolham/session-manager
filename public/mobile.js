@@ -707,6 +707,9 @@
         if (headerTitleEl) {
           headerTitleEl.innerText = trimmed;
         }
+        try {
+          localStorage.setItem('active_session', JSON.stringify(currentSession));
+        } catch (e) {}
       }
 
       // Refresh session list in background

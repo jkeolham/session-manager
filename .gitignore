@@ -5,4 +5,5 @@ node_modules/
 uploads/
 *.vsix
 bridge/data/
+data/
 __pycache__/

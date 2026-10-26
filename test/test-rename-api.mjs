@@ -70,7 +70,15 @@ async function runRenameTests() {
     assert.strictEqual(validJson.title, '감사 및 리뷰어');
     console.log('✅ Valid rename test passed (200, ok: true)');
 
-    console.log('\n🎉 ALL 5 RENAME API TESTS PASSED!');
+    // 6. Persistent custom title verification: ensure custom_titles.json overrides
+    const { execFileSync } = await import('node:child_process');
+    const out = execFileSync('python3', ['remote-sessions.py', '--titles'], { encoding: 'utf-8' });
+    const titles = JSON.parse(out);
+    assert(titles['0627caa5-1a0c-43ec-a254-75f5a7e4576b'], 'CID must exist in remote-sessions titles');
+    assert.strictEqual(titles['0627caa5-1a0c-43ec-a254-75f5a7e4576b'].title, '감사 및 리뷰어');
+    console.log('✅ Persistent custom title override test passed!');
+
+    console.log('\n🎉 ALL 6 RENAME API TESTS PASSED!');
   } finally {
     server.close();
   }

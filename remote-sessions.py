@@ -1,5 +1,7 @@
 import os, glob, sqlite3, datetime, json, sys, time
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CUSTOM_TITLES_PATH = os.path.join(BASE_DIR, "data", "custom_titles.json")
 CONV_DIR = os.path.expanduser("~/.gemini/antigravity-cli/conversations")
 DB_PATH = os.path.expanduser("~/.gemini/antigravity-cli/conversation_summaries.db")
 
@@ -24,50 +26,67 @@ def format_time_ago(ts):
     diff_month = diff_day // 30
     return f"{diff_month}mo"
 
-def get_all_titles():
-    if not os.path.exists(DB_PATH):
+def load_custom_titles():
+    if not os.path.exists(CUSTOM_TITLES_PATH):
         return {}
     try:
-        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-        c = conn.cursor()
-        titles = {}
-        for cid, title, status, steps, not_idle, ltime in c.execute(
-            "SELECT conversation_id, title, status, step_count, not_fully_idle, last_modified_time FROM conversation_summaries"
-        ):
-            if title:
-                is_running = (status == "CASCADE_RUN_STATUS_RUNNING") or bool(not_idle)
-                titles[cid] = {
-                    "title": title,
-                    "status": status,
-                    "steps": steps,
-                    "isRunning": is_running,
-                    "lastModified": ltime
-                }
-        return titles
+        with open(CUSTOM_TITLES_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                result = {}
+                for k, v in data.items():
+                    if isinstance(v, dict) and v.get("title"):
+                        result[k] = v["title"]
+                    elif isinstance(v, str) and v.strip():
+                        result[k] = v.strip()
+                return result
     except Exception:
-        return {}
+        pass
+    return {}
+
+def get_all_titles():
+    titles = {}
+    if os.path.exists(DB_PATH):
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            c = conn.cursor()
+            for cid, title, status, steps, not_idle, ltime in c.execute(
+                "SELECT conversation_id, title, status, step_count, not_fully_idle, last_modified_time FROM conversation_summaries"
+            ):
+                if title:
+                    is_running = (status == "CASCADE_RUN_STATUS_RUNNING") or bool(not_idle)
+                    titles[cid] = {
+                        "title": title,
+                        "status": status,
+                        "steps": steps,
+                        "isRunning": is_running,
+                        "lastModified": ltime
+                    }
+            conn.close()
+        except Exception:
+            pass
+
+    # Persistent custom title priority override
+    custom_titles = load_custom_titles()
+    for cid, ctitle in custom_titles.items():
+        if cid in titles:
+            titles[cid]["title"] = ctitle
+        else:
+            titles[cid] = {
+                "title": ctitle,
+                "status": "CASCADE_RUN_STATUS_IDLE",
+                "steps": 0,
+                "isRunning": False,
+                "lastModified": None
+            }
+
+    return titles
 
 def get_sessions():
-    if not os.path.exists(DB_PATH) or not os.path.exists(CONV_DIR):
+    if not os.path.exists(CONV_DIR):
         return []
-    try:
-        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-        c = conn.cursor()
-        titles = {}
-        for cid, title, status, steps, not_idle, ltime in c.execute(
-            "SELECT conversation_id, title, status, step_count, not_fully_idle, last_modified_time FROM conversation_summaries"
-        ):
-            is_running = (status == "CASCADE_RUN_STATUS_RUNNING") or bool(not_idle)
-            titles[cid] = {
-                "title": title,
-                "status": status,
-                "steps": steps,
-                "isRunning": is_running,
-                "lastModified": ltime
-            }
-    except Exception:
-        titles = {}
 
+    titles = get_all_titles()
     sessions = []
     now = time.time()
     for fpath in glob.glob(f"{CONV_DIR}/*.db"):

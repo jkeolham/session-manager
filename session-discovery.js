@@ -94,9 +94,9 @@ async function getCategorizedSessions() {
       name: sessionName,
       pid,
       cmd,
-      title: null,
+      title: (titles[sessionName] && titles[sessionName].title) ? titles[sessionName].title : null,
       cid: null,
-      displayName: null
+      displayName: (titles[sessionName] && titles[sessionName].title) ? titles[sessionName].title : null
     };
 
     if (sessionName.startsWith('agy_')) {
