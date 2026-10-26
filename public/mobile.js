@@ -457,6 +457,12 @@
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                 </svg>
               </button>` : ''}
+              <button class="session-rename-btn" type="button" aria-label="세션 이름 변경" title="세션 이름 변경">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </button>
               ${cat.key === 'agy' && item.cid ? `<button class="session-delete-btn" type="button" aria-label="대화 삭제" title="대화 삭제">🗑</button>` : ''}
             </div>
           </div>
@@ -492,6 +498,15 @@
       });
     });
 
+    sessionListEl.querySelectorAll('.session-rename-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const itemEl = btn.closest('.session-item');
+        const sessionData = JSON.parse(itemEl.getAttribute('data-session'));
+        renameSession(sessionData, itemEl);
+      });
+    });
+
     sessionListEl.querySelectorAll('.session-delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -508,6 +523,65 @@
         }
       });
     });
+  }
+
+  // Rename session (Antigravity conversation title or tmux session)
+  async function renameSession(session, itemEl) {
+    const currentTitle = session.title || session.name || '';
+    const newTitle = prompt('새 세션 이름을 입력하세요:', currentTitle);
+    if (!newTitle || !newTitle.trim() || newTitle.trim() === currentTitle) {
+      return;
+    }
+
+    const trimmed = newTitle.trim();
+    try {
+      const payload = session.cid
+        ? { cid: session.cid, title: trimmed }
+        : { session: session.name, newName: trimmed };
+
+      const res = await fetch('/api/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        alert(`세션 이름 변경 실패: ${data.error || '알 수 없는 오류'}`);
+        return;
+      }
+
+      // Update session object
+      session.title = trimmed;
+      if (data.type === 'tmux') {
+        session.name = trimmed;
+      }
+      if (itemEl) {
+        itemEl.setAttribute('data-session', JSON.stringify(session));
+        const nameEl = itemEl.querySelector('.session-item-name');
+        if (nameEl) {
+          nameEl.innerText = trimmed;
+        }
+      }
+
+      // If active session, update header title
+      if (currentSession && (
+        (currentSession.cid && currentSession.cid === session.cid) ||
+        (currentSession.name && currentSession.name === session.name)
+      )) {
+        currentSession.title = trimmed;
+        if (data.type === 'tmux') currentSession.name = trimmed;
+        const headerTitleEl = document.getElementById('current-session-title');
+        if (headerTitleEl) {
+          headerTitleEl.innerText = trimmed;
+        }
+      }
+
+      // Refresh session list in background
+      loadSessions();
+    } catch (err) {
+      console.error('Failed to rename session:', err);
+      alert(`세션 이름 변경 중 오류가 발생했습니다: ${err.message}`);
+    }
   }
 
   // Permanent: removes the conversation from the daemon and antigravity.google.com too.
@@ -3199,6 +3273,16 @@
   // --- Initial Load ---
   initModelPicker();
   initVoiceRecognition();
+
+  const currentSessionTitleEl = document.getElementById('current-session-title');
+  if (currentSessionTitleEl) {
+    currentSessionTitleEl.addEventListener('click', () => {
+      if (!currentSession) return;
+      renameSession(currentSession, null);
+    });
+    currentSessionTitleEl.style.cursor = 'pointer';
+    currentSessionTitleEl.title = '클릭하여 세션 이름 변경';
+  }
 
   fetchSessions().then(() => {
     const saved = localStorage.getItem('active_session');

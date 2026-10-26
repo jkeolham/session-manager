@@ -1,5 +1,5 @@
 // Service Worker for N100 Session Manager PWA
-const CACHE_NAME = 'session-manager-v17';
+const CACHE_NAME = 'session-manager-v18';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

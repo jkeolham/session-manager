@@ -2340,6 +2340,28 @@ details.work-process-block[open] .claude-pill-arrow {
   color: #22c55e;
 }
 
+.session-rename-btn {
+  flex: none;
+  margin-left: 6px;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-rename-btn:hover, .session-rename-btn:focus-visible {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.3);
+  outline: none;
+}
+
 .session-delete-btn {
   flex: none;
   margin-left: 6px;

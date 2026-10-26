@@ -750,6 +750,71 @@ export function createServer(options = {}) {
         return;
       }
 
+      // 5.3 POST /api/rename — rename an Antigravity conversation title or tmux session
+      if (req.method === 'POST' && pathname === '/api/rename') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          if (body.length > 64 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            const cid = typeof data.cid === 'string' ? data.cid.trim() : '';
+            const session = typeof data.session === 'string' ? data.session.trim() : '';
+            const newTitle = typeof data.title === 'string' ? data.title.trim() : (typeof data.newName === 'string' ? data.newName.trim() : '');
+
+            if (!newTitle) {
+              sendError(res, 400, 'Title cannot be empty');
+              return;
+            }
+            if (newTitle.length > 120) {
+              sendError(res, 400, 'Title cannot exceed 120 characters');
+              return;
+            }
+
+            // Case A: Antigravity Session with full or prefix cid
+            if (cid) {
+              const fullCid = (cid.length > 10) ? cid : findFullCidByPrefix(cid);
+              if (!fullCid || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(fullCid)) {
+                sendError(res, 400, 'Invalid conversation id');
+                return;
+              }
+              execFileSync('python3', [path.join(__dirname, 'rename-session.py'), fullCid, newTitle], {
+                timeout: 5000,
+                stdio: ['ignore', 'pipe', 'ignore']
+              });
+              sendJson(res, 200, { ok: true, type: 'agy', cid: fullCid, title: newTitle });
+              return;
+            }
+
+            // Case B: Tmux Session renaming
+            if (session) {
+              if (!/^[a-zA-Z0-9_\-]+$/.test(session)) {
+                sendError(res, 400, 'Invalid source session name format');
+                return;
+              }
+              if (!/^[a-zA-Z0-9_\-]+$/.test(newTitle)) {
+                sendError(res, 400, 'Tmux session name must only contain alphanumeric, underscore, or dash characters');
+                return;
+              }
+              execFileSync('tmux', ['rename-session', '-t', session, newTitle], {
+                timeout: 3000,
+                stdio: ['ignore', 'pipe', 'ignore']
+              });
+              sendJson(res, 200, { ok: true, type: 'tmux', oldSession: session, session: newTitle, title: newTitle });
+              return;
+            }
+
+            sendError(res, 400, 'Missing cid or session parameter');
+          } catch (err) {
+            console.error('Rename error:', err);
+            sendError(res, 500, err.message);
+          }
+        });
+        return;
+      }
+
       // 6. Uploaded files serving (/uploads/*)
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/uploads/')) {
         const safeFile = path.basename(pathname);
