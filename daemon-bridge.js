@@ -165,56 +165,63 @@ async function getAvailableModels() {
 }
 
 // Default fallback usage in case daemon bridge is temporarily offline
-const FALLBACK_USAGE = {
-  ok: true,
-  groups: [
-    {
-      displayName: "Gemini Models",
-      description: "Models within this group: Gemini Flash, Gemini Pro",
-      buckets: [
-        {
-          bucketId: "gemini-weekly",
-          displayName: "Weekly Limit Remaining",
-          description: "You have used some of your weekly limit, it will fully refresh in 4 days, 2 hours.",
-          window: "weekly",
-          remainingFraction: 0.095,
-          resetTime: "2026-10-24T06:44:05Z"
-        },
-        {
-          bucketId: "gemini-5h",
-          displayName: "Five Hour Limit Remaining",
-          description: "You have used some of your 5-hour limit, it will fully refresh in 4 hours, 38 minutes.",
-          window: "5h",
-          remainingFraction: 0.914,
-          resetTime: "2026-10-20T09:01:55Z"
-        }
-      ]
-    },
-    {
-      displayName: "Claude and GPT models",
-      description: "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
-      buckets: [
-        {
-          bucketId: "3p-weekly",
-          displayName: "Weekly Limit Remaining",
-          description: "You have used some of your weekly limit, it will fully refresh in 6 days, 23 hours.",
-          window: "weekly",
-          remainingFraction: 0.958,
-          resetTime: "2026-10-27T04:23:19Z"
-        },
-        {
-          bucketId: "3p-5h",
-          displayName: "Five Hour Limit Remaining",
-          description: "You have used some of your 5-hour limit, it will fully refresh in 4 hours, 59 minutes.",
-          window: "5h",
-          remainingFraction: 0.916,
-          resetTime: "2026-10-20T09:23:19Z"
-        }
-      ]
-    }
-  ],
-  description: "Within each group, models share a weekly limit and a 5-hour limit. Quota is consumed proportionally to the cost of the tokens. Thus, limits will last longer with shorter tasks or using more cost-effective models. The 5-hour limit smooths out aggregate demand to fairly distribute global capacity across all users, while your weekly limit is tied directly to your individual tier."
-};
+function getFallbackUsage() {
+  const now = Date.now();
+  const fiveHoursLater = new Date(now + 4 * 3600 * 1000 + 45 * 60 * 1000).toISOString();
+  const weeklyLater = new Date(now + 4 * 86400 * 1000 + 2 * 3600 * 1000).toISOString();
+  const weeklyLater3p = new Date(now + 6 * 86400 * 1000 + 20 * 3600 * 1000).toISOString();
+
+  return {
+    ok: true,
+    groups: [
+      {
+        displayName: "Gemini Models",
+        description: "Models within this group: Gemini Flash, Gemini Pro",
+        buckets: [
+          {
+            bucketId: "gemini-weekly",
+            displayName: "Weekly Limit Remaining",
+            description: "You have used some of your weekly limit.",
+            window: "weekly",
+            remainingFraction: 0.15,
+            resetTime: weeklyLater
+          },
+          {
+            bucketId: "gemini-5h",
+            displayName: "Five Hour Limit Remaining",
+            description: "You have used some of your 5-hour limit.",
+            window: "5h",
+            remainingFraction: 0.85,
+            resetTime: fiveHoursLater
+          }
+        ]
+      },
+      {
+        displayName: "Claude and GPT models",
+        description: "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+        buckets: [
+          {
+            bucketId: "3p-weekly",
+            displayName: "Weekly Limit Remaining",
+            description: "You have used some of your weekly limit.",
+            window: "weekly",
+            remainingFraction: 0.90,
+            resetTime: weeklyLater3p
+          },
+          {
+            bucketId: "3p-5h",
+            displayName: "Five Hour Limit Remaining",
+            description: "You have used some of your 5-hour limit.",
+            window: "5h",
+            remainingFraction: 0.90,
+            resetTime: fiveHoursLater
+          }
+        ]
+      }
+    ],
+    description: "Within each group, models share a weekly limit and a 5-hour limit. Quota is consumed proportionally to the cost of the tokens. Thus, limits will last longer with shorter tasks or using more cost-effective models. The 5-hour limit smooths out aggregate demand to fairly distribute global capacity across all users, while your weekly limit is tied directly to your individual tier."
+  };
+}
 
 async function getUserUsageSummary() {
   // 1차 시도: bridge REST API GET /usage
@@ -280,7 +287,7 @@ async function getUserUsageSummary() {
     // final fallback
   }
 
-  return FALLBACK_USAGE;
+  return getFallbackUsage();
 }
 
 async function newConversation(text, title, model) {

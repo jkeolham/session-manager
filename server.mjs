@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execSync, execFileSync } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -13,6 +14,12 @@ const __dirname = path.dirname(__filename);
 const { getCategorizedSessions } = require('./session-discovery.js');
 const { parseTranscriptFile, parseTranscriptString } = require('./transcript-parser.js');
 const daemonBridge = require('./daemon-bridge.js');
+
+const ALLOWED_UPLOAD_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp',
+  '.pdf', '.txt', '.md', '.json', '.log',
+  '.py', '.js', '.ts', '.mjs', '.sh', '.csv'
+]);
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -105,7 +112,7 @@ export function sendTextToTmux(sessionName, text, cid = null) {
   // Antigravity conversations are never typed into a TUI (the daemon owns them);
   // only existing Claude/Codex/shell tmux sessions get here.
   try {
-    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+    execFileSync('tmux', ['has-session', '-t', sessionName], { stdio: ['ignore', 'ignore', 'ignore'] });
   } catch (e) {
     throw new Error(`tmux session ${sessionName} not found`);
   }
@@ -114,14 +121,16 @@ export function sendTextToTmux(sessionName, text, cid = null) {
   try {
     fs.writeFileSync(tmpFile, text, 'utf-8');
     // 1. Cancel copy-mode in tmux if active
-    execSync(`tmux send-keys -t "${sessionName}" -X cancel 2>/dev/null || true`);
+    try {
+      execFileSync('tmux', ['send-keys', '-t', sessionName, '-X', 'cancel'], { stdio: ['ignore', 'ignore', 'ignore'] });
+    } catch (e) {}
     // 2. Load buffer and paste with bracketed mode (-p) to prevent newlines from auto-submitting
-    execSync(`tmux load-buffer "${tmpFile}"`);
-    execSync(`tmux paste-buffer -p -t "${sessionName}"`);
+    execFileSync('tmux', ['load-buffer', tmpFile], { stdio: ['ignore', 'ignore', 'ignore'] });
+    execFileSync('tmux', ['paste-buffer', '-p', '-t', sessionName], { stdio: ['ignore', 'ignore', 'ignore'] });
     // 3. Small flush delay
-    execSync(`sleep 0.05`);
+    execFileSync('sleep', ['0.05'], { stdio: ['ignore', 'ignore', 'ignore'] });
     // 4. Send Enter to submit
-    execSync(`tmux send-keys -t "${sessionName}" C-m`);
+    execFileSync('tmux', ['send-keys', '-t', sessionName, 'C-m'], { stdio: ['ignore', 'ignore', 'ignore'] });
     return true;
   } catch (err) {
     console.error(`Failed to send text to tmux session ${sessionName}:`, err.message);
@@ -191,6 +200,24 @@ export function createServer(options = {}) {
       return;
     }
 
+    // CSRF Defense: Block cross-origin state-changing requests (POST/PUT/DELETE)
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+      const origin = req.headers.origin;
+      const host = req.headers.host;
+      if (origin && host) {
+        try {
+          const originHost = new URL(origin).host;
+          if (originHost !== host) {
+            sendError(res, 403, 'Cross-Origin Forbidden');
+            return;
+          }
+        } catch (e) {
+          sendError(res, 403, 'Invalid Origin Header');
+          return;
+        }
+      }
+    }
+
     try {
       const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const pathname = urlObj.pathname;
@@ -235,10 +262,15 @@ export function createServer(options = {}) {
 
         let cwd = null;
         if (targetSession) {
+          if (!/^[a-zA-Z0-9_\-]+$/.test(targetSession)) {
+            sendError(res, 400, 'Invalid session name format');
+            return;
+          }
           try {
-            cwd = execSync(`tmux display-message -p -t "${targetSession}" '#{pane_current_path}' 2>/dev/null`, {
+            cwd = execFileSync('tmux', ['display-message', '-p', '-t', targetSession, '#{pane_current_path}'], {
               encoding: 'utf-8',
-              timeout: 2000
+              timeout: 2000,
+              stdio: ['ignore', 'pipe', 'ignore']
             }).trim();
           } catch (e) {}
         }
@@ -448,6 +480,7 @@ export function createServer(options = {}) {
         let tPath = resolveTranscriptPath(cid, session);
         let lastSize = 0;
         let lineRemainder = '';
+        const decoder = new StringDecoder('utf-8');
         if (tPath && fs.existsSync(tPath)) {
           try {
             lastSize = fs.statSync(tPath).size;
@@ -474,25 +507,35 @@ export function createServer(options = {}) {
             try {
               const stat = fs.statSync(tPath);
               if (stat.size > lastSize) {
-                const fd = fs.openSync(tPath, 'r');
-                const buffer = Buffer.alloc(stat.size - lastSize);
-                fs.readSync(fd, buffer, 0, buffer.length, lastSize);
-                fs.closeSync(fd);
-                lastSize = stat.size;
-
-                const newChunk = lineRemainder + buffer.toString('utf-8');
-                const lastNewline = newChunk.lastIndexOf('\n');
-                if (lastNewline !== -1) {
-                  const completeLines = newChunk.slice(0, lastNewline + 1);
-                  lineRemainder = newChunk.slice(lastNewline + 1);
-                  const parsed = parseTranscriptString(completeLines);
-                  if (parsed && parsed.turns && parsed.turns.length > 0) {
-                    for (const turn of parsed.turns) {
-                      sendEvent('turn', turn);
-                    }
+                let fd = null;
+                let buffer = null;
+                try {
+                  fd = fs.openSync(tPath, 'r');
+                  buffer = Buffer.alloc(stat.size - lastSize);
+                  fs.readSync(fd, buffer, 0, buffer.length, lastSize);
+                  lastSize = stat.size;
+                } finally {
+                  if (fd !== null) {
+                    try { fs.closeSync(fd); } catch (e) {}
                   }
-                } else {
-                  lineRemainder = newChunk;
+                }
+
+                if (buffer && buffer.length > 0) {
+                  const decoded = decoder.write(buffer);
+                  const newChunk = lineRemainder + decoded;
+                  const lastNewline = newChunk.lastIndexOf('\n');
+                  if (lastNewline !== -1) {
+                    const completeLines = newChunk.slice(0, lastNewline + 1);
+                    lineRemainder = newChunk.slice(lastNewline + 1);
+                    const parsed = parseTranscriptString(completeLines);
+                    if (parsed && parsed.turns && parsed.turns.length > 0) {
+                      for (const turn of parsed.turns) {
+                        sendEvent('turn', turn);
+                      }
+                    }
+                  } else {
+                    lineRemainder = newChunk;
+                  }
                 }
               } else if (stat.size < lastSize) {
                 lastSize = stat.size;
@@ -511,6 +554,7 @@ export function createServer(options = {}) {
         req.on('close', () => {
           clearInterval(pingInterval);
           clearInterval(pollInterval);
+          try { decoder.end(); } catch (e) {}
         });
 
         return;
@@ -521,13 +565,14 @@ export function createServer(options = {}) {
         let body = '';
         req.on('data', chunk => {
           body += chunk;
-          if (body.length > 30 * 1024 * 1024) { // 30MB limit
+          if (body.length > 15 * 1024 * 1024) { // 15MB limit to prevent OOM
             req.destroy();
           }
         });
         req.on('end', () => {
           try {
             const data = JSON.parse(body || '{}');
+            body = null; // Free JSON string memory immediately
             const files = Array.isArray(data.files) ? data.files : [];
             if (files.length === 0) {
               sendError(res, 400, 'No files provided');
@@ -538,8 +583,15 @@ export function createServer(options = {}) {
             for (const f of files) {
               const origName = f.name || 'attachment.bin';
               const ext = path.extname(origName).toLowerCase();
+
+              // Security: validate extension against strict whitelist
+              if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
+                sendError(res, 400, `File extension '${ext || 'none'}' is not allowed for security reasons`);
+                return;
+              }
+
               const base = path.basename(origName, ext).replace(/[^a-zA-Z0-9_\-\.]/g, '_').slice(0, 32);
-              const safeName = `${Date.now()}_${base}${ext || '.bin'}`;
+              const safeName = `${Date.now()}_${base}${ext}`;
               const destPath = path.join(uploadsDir, safeName);
 
               let base64 = f.data || '';
@@ -708,7 +760,9 @@ export function createServer(options = {}) {
           res.writeHead(200, {
             'Content-Type': mime,
             'Cache-Control': 'public, max-age=86400',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+            'X-Content-Type-Options': 'nosniff'
           });
           if (req.method === 'HEAD') {
             res.end();

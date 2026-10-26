@@ -284,9 +284,9 @@
     // 2-3. $ 기호 없이 본문에 노출된 일반 LaTeX 기호 치환 (\rightarrow 등)
     text = replaceLatexSymbols(text);
 
-    // 2-4. 마크다운 파서 전에 코드 블록 복원
+    // 2-4. 마크다운 파서 전에 코드 블록 복원 (함수형 콜백으로 $1, $& 등 특수 패턴 해석 방지)
     codeProtections.forEach((codeStr, idx) => {
-      text = text.replace(`%%PROTECTED_CODE_${idx}%%`, codeStr);
+      text = text.replace(`%%PROTECTED_CODE_${idx}%%`, () => codeStr);
     });
 
     // 3. Marked GFM 파싱 실행
@@ -302,12 +302,40 @@
       parsed = fallbackParseMarkdown(text);
     }
 
-    // 4. 수식 토큰 복원
+    // 4. 수식 토큰 복원 (<p> 언래핑 및 함수형 콜백으로 수식 HTML 내 특수문자 보존)
     mathTokens.forEach((tokenHtml, idx) => {
-      parsed = parsed.replace(`%%MATH_TOKEN_${idx}%%`, tokenHtml);
+      const tokenStr = `%%MATH_TOKEN_${idx}%%`;
+      const pWrapped = new RegExp(`<p>\\s*${tokenStr}\\s*<\\/p>`, 'g');
+      if (pWrapped.test(parsed)) {
+        parsed = parsed.replace(pWrapped, () => tokenHtml);
+      } else {
+        parsed = parsed.replace(tokenStr, () => tokenHtml);
+      }
     });
 
-    return parsed;
+    // 5. XSS 방어: DOMPurify로 최종 소독 (KaTeX MathML 태그 및 SVG 보존)
+    return sanitizeHtml(parsed);
+  }
+
+  function sanitizeHtml(dirtyHtml) {
+    if (!dirtyHtml) return '';
+    if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.sanitize === 'function') {
+      try {
+        return DOMPurify.sanitize(dirtyHtml, {
+          ADD_TAGS: [
+            'math', 'semantics', 'annotation', 'annotation-xml',
+            'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'msubsup',
+            'mfrac', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd',
+            'mtext', 'mspace', 'munder', 'mover', 'munderover',
+            'mpadded', 'mphantom', 'menclose'
+          ],
+          ADD_ATTR: ['target', 'rel', 'display', 'xmlns', 'encoding']
+        });
+      } catch (err) {
+        console.warn('DOMPurify error, returning dirtyHtml:', err);
+      }
+    }
+    return dirtyHtml;
   }
 
   window.copyCodeBlock = function (btn) {
@@ -1240,12 +1268,35 @@
                 (latestServerTurn.content || '') !== (lastRenderedTurn.content || '') ||
                 ((latestServerTurn.toolCalls || []).length !== (lastRenderedTurn.toolCalls || []).length);
 
-              // 사용자가 이전 메시지를 로드한 상태(existingMessages.length > grouped.length)에서는
-              // 단순 100개 길이 비교로 전체 DOM을 날리지 않음!
-              const hasLoadedEarlier = earliestLoadedTurnIndex !== null && existingMessages.length >= grouped.length;
-              const needsFullRerender = isDifferentLastTurn || (!hasLoadedEarlier && grouped.length !== existingMessages.length);
+              // 마지막 턴만 내용/도구가 갱신된 경우 (경량 증분 업데이트로 전체 DOM 재생성 방지)
+              const isOnlyLastTurnUpdated = lastRenderedTurn &&
+                lastRenderedEl &&
+                grouped.length === existingMessages.length &&
+                latestServerTurn.index === lastRenderedTurn.index &&
+                latestServerTurn.role === lastRenderedTurn.role &&
+                isDifferentLastTurn;
 
-              if (needsFullRerender) {
+              // 사용자가 이전 메시지를 로드한 상태(existingMessages.length > grouped.length)에서는
+              // 단순 길이 비교로 전체 DOM을 날리지 않음!
+              const hasLoadedEarlier = earliestLoadedTurnIndex !== null && existingMessages.length >= grouped.length;
+              const needsFullRerender = !isOnlyLastTurnUpdated && (isDifferentLastTurn || (!hasLoadedEarlier && grouped.length !== existingMessages.length));
+
+              if (isOnlyLastTurnUpdated) {
+                // 경량 업데이트: 전체 대화를 날리지 않고 마지막 턴 엘리먼트만 갱신
+                const prevScrollTop = chatContainer.scrollTop;
+                const wasNearBottom = isAutoScroll && ((chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 180);
+
+                const newLastEl = createTurnElement(latestServerTurn);
+                if (newLastEl) {
+                  chatHistory.replaceChild(newLastEl, lastRenderedEl);
+                  updateUserProcessingState();
+                  if (wasNearBottom) {
+                    scrollToBottom(true);
+                  } else {
+                    chatContainer.scrollTop = prevScrollTop;
+                  }
+                }
+              } else if (needsFullRerender) {
                 // 현재 스크롤 위치 및 바닥 여부 정밀 보존
                 const prevScrollTop = chatContainer.scrollTop;
                 const wasNearBottom = isAutoScroll && ((chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 180);
