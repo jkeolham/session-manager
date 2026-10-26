@@ -66,17 +66,31 @@ function extractQuestionData(toolCalls, subsequentItems) {
   if (Array.isArray(rawQuestions)) {
     for (const q of rawQuestions) {
       if (!q) continue;
+      const rawOptions = Array.isArray(q.options) ? q.options : [];
+      const options = rawOptions.map((opt, optIdx) => {
+        if (typeof opt === 'object' && opt !== null) {
+          return { id: String(opt.id || optIdx + 1), text: String(opt.text || '') };
+        }
+        return { id: String(optIdx + 1), text: String(opt || '') };
+      });
       list.push({
         question: q.question || '',
         is_multi_select: !!q.is_multi_select,
-        options: Array.isArray(q.options) ? q.options : []
+        options
       });
     }
   } else if (rawQuestions && typeof rawQuestions === 'object') {
+    const rawOptions = Array.isArray(rawQuestions.options) ? rawQuestions.options : [];
+    const options = rawOptions.map((opt, optIdx) => {
+      if (typeof opt === 'object' && opt !== null) {
+        return { id: String(opt.id || optIdx + 1), text: String(opt.text || '') };
+      }
+      return { id: String(optIdx + 1), text: String(opt || '') };
+    });
     list.push({
       question: rawQuestions.question || '',
       is_multi_select: !!rawQuestions.is_multi_select,
-      options: Array.isArray(rawQuestions.options) ? rawQuestions.options : []
+      options
     });
   }
 

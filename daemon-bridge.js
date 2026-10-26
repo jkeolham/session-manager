@@ -73,6 +73,12 @@ async function sendPrompt(cid, text, plannerConfig) {
   return request('POST', '/send-user', payload);
 }
 
+// Responds to an interactive prompt (such as ask_question) in a daemon conversation.
+async function respondToInteraction(cid, responses, stepIndex = null, cancelled = false) {
+  const payload = { cid, responses, stepIndex, cancelled };
+  return request('POST', '/respond-interaction', payload);
+}
+
 // Default recommended models aligned with Antigravity 2.0
 const FALLBACK_MODELS = [
   {
@@ -299,4 +305,4 @@ async function deleteConversation(cid) {
   return request('POST', '/delete', { cid });
 }
 
-module.exports = { isAvailable, sendPrompt, getAvailableModels, getUserUsageSummary, newConversation, deleteConversation, BOOTSTRAP_HINT };
+module.exports = { isAvailable, sendPrompt, respondToInteraction, getAvailableModels, getUserUsageSummary, newConversation, deleteConversation, BOOTSTRAP_HINT };

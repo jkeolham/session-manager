@@ -709,6 +709,41 @@ export function createServer(options = {}) {
         return;
       }
 
+      // 5.05 POST /api/respond-question — respond to interactive ask_question prompt
+      if (req.method === 'POST' && pathname === '/api/respond-question') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          if (body.length > 1024 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            const rawId = data.cid || (data.session && (data.session.startsWith('rc_') || data.session.startsWith('agy_'))
+              ? data.session.replace(/^(rc_|agy_)/, '')
+              : '');
+            const fullCid = (rawId && rawId.length > 10) ? rawId : findFullCidByPrefix(rawId);
+            const cid = fullCid || data.cid;
+
+            if (!cid || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(cid)) {
+              sendError(res, 400, 'Valid conversation CID is required');
+              return;
+            }
+
+            const responses = Array.isArray(data.responses) ? data.responses : [];
+            const stepIndex = typeof data.stepIndex === 'number' ? data.stepIndex : null;
+            const cancelled = !!data.cancelled;
+
+            const result = await daemonBridge.respondToInteraction(cid, responses, stepIndex, cancelled);
+            sendJson(res, 200, { ok: true, cid, result });
+          } catch (err) {
+            console.error('Respond question error:', err);
+            sendError(res, 500, err.message);
+          }
+        });
+        return;
+      }
+
       // 5.1 POST /api/new — start a new Antigravity conversation inside the daemon
       if (req.method === 'POST' && pathname === '/api/new') {
         let body = '';

@@ -110,6 +110,72 @@ def delete_conversation(cid):
     return ls_rpc("DeleteCascadeTrajectory", {"cascadeId": cid})
 
 
+def respond_interaction(cid, responses=None, step_index=None, cancelled=False):
+    """HandleCascadeUserInteraction on daemon LS — replies to ask_question or other interactions."""
+    trajectories = ls_rpc("GetAllCascadeTrajectories", {})
+    if "error" in trajectories:
+        return trajectories
+    summary = trajectories.get("trajectorySummaries", {}).get(cid, {})
+    if not summary:
+        return {"error": f"Conversation {cid} not found in daemon trajectories"}
+
+    trajectory_id = summary.get("trajectoryId")
+    waiting_steps = summary.get("waitingSteps", [])
+
+    target_step = None
+    if waiting_steps:
+        target_step = waiting_steps[0]
+        if step_index is None:
+            step_index = target_step.get("stepIndex")
+
+    if step_index is None:
+        return {"error": "No waiting interaction found for conversation"}
+
+    spec_questions = []
+    if target_step:
+        req_int = target_step.get("step", {}).get("requestedInteraction", {})
+        spec_questions = req_int.get("askQuestion", {}).get("questions", [])
+
+    formatted_responses = []
+    if responses and isinstance(responses, list):
+        for idx, r in enumerate(responses):
+            q_text = r.get("question")
+            if not q_text and idx < len(spec_questions):
+                q_text = spec_questions[idx].get("question", "")
+            opts = [str(x) for x in r.get("selectedOptionIds", [])]
+            write_in = str(r.get("writeInResponse", "") or "")
+            skipped = bool(r.get("skipped", False))
+            formatted_responses.append({
+                "question": q_text or "",
+                "selectedOptionIds": opts,
+                "writeInResponse": write_in,
+                "skipped": skipped
+            })
+    elif spec_questions:
+        for q in spec_questions:
+            formatted_responses.append({
+                "question": q.get("question", ""),
+                "selectedOptionIds": [],
+                "writeInResponse": "",
+                "skipped": True if not cancelled else False
+            })
+
+    body = {
+        "cascadeId": cid,
+        "interaction": {
+            "stepIndex": step_index,
+            "askQuestion": {
+                "responses": formatted_responses,
+                "cancelled": bool(cancelled)
+            }
+        }
+    }
+    if trajectory_id:
+        body["interaction"]["trajectoryId"] = trajectory_id
+
+    return ls_rpc("HandleCascadeUserInteraction", body)
+
+
 def ls_rpc(method, body):
     host = LS_ADDRESS if "://" in LS_ADDRESS else f"http://{LS_ADDRESS}"
     req = urllib.request.Request(
@@ -289,6 +355,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(400, {"error": "a full conversation id is required"})
                 return
             result = delete_conversation(cid)
+        elif path == "/respond-interaction":
+            cid = (data.get("cid") or "").strip()
+            if not CID_RE.match(cid):
+                self._reply(400, {"error": "a full conversation id is required"})
+                return
+            result = respond_interaction(
+                cid,
+                responses=data.get("responses"),
+                step_index=data.get("stepIndex"),
+                cancelled=data.get("cancelled", False)
+            )
         elif path == "/new":
             if not text:
                 self._reply(400, {"error": "text is required"})

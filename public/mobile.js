@@ -1056,14 +1056,16 @@
       const inputName = `q_${turnIndex || 'latest'}_${qIdx}`;
 
       const optionsHtml = (q.options || []).map((opt, optIdx) => {
-        const isRec = opt.includes('(Recommended)');
-        const cleanOpt = opt.replace(/^\(Recommended\)\s*/i, '').trim();
+        const optText = typeof opt === 'object' && opt !== null ? (opt.text || '') : String(opt);
+        const optId = typeof opt === 'object' && opt !== null ? String(opt.id || optIdx + 1) : String(optIdx + 1);
+        const isRec = optText.includes('(Recommended)');
+        const cleanOpt = optText.replace(/^\(Recommended\)\s*/i, '').trim();
         // 기본 선택: 추천 옵션이거나 첫 번째 옵션
         const isChecked = isPending && (isRec || optIdx === 0);
 
         return `
           <label class="question-option-item ${isRec ? 'recommended' : ''}">
-            <input type="${inputType}" name="${inputName}" value="${escapeHtml(opt)}" ${isChecked ? 'checked' : ''} ${!isPending ? 'disabled' : ''}>
+            <input type="${inputType}" name="${inputName}" value="${escapeHtml(optText)}" data-opt-id="${escapeHtml(optId)}" ${isChecked ? 'checked' : ''} ${!isPending ? 'disabled' : ''}>
             <div class="option-content">
               <span class="option-num">${optIdx + 1}</span>
               <div class="option-text-wrap">
@@ -1077,7 +1079,7 @@
 
       const otherOptionHtml = `
         <label class="question-option-item other-option">
-          <input type="${inputType}" name="${inputName}" value="__OTHER__" ${!isPending ? 'disabled' : ''}>
+          <input type="${inputType}" name="${inputName}" value="__OTHER__" data-opt-id="__OTHER__" ${!isPending ? 'disabled' : ''}>
           <div class="option-content">
             <span class="option-num">${(q.options || []).length + 1}</span>
             <span class="option-text">Other (직접 입력)</span>
@@ -1089,7 +1091,7 @@
       `;
 
       return `
-        <div class="question-card ${isPending ? 'pending' : 'answered'}" data-turn-index="${turnIndex || ''}" data-multi="${isMulti ? 'true' : 'false'}">
+        <div class="question-card ${isPending ? 'pending' : 'answered'}" data-turn-index="${turnIndex || ''}" data-question-text="${escapeHtml(q.question)}" data-multi="${isMulti ? 'true' : 'false'}">
           <div class="question-card-header">
             <div class="question-header-left">
               <span class="question-badge-icon">💬</span>
@@ -1121,6 +1123,28 @@
         </div>
       `;
     }).join('');
+  }
+
+  function markQuestionCardAnswered(card, answerText) {
+    if (!card) return;
+    card.classList.remove('pending');
+    card.classList.add('answered');
+    const badge = card.querySelector('.question-status-badge');
+    if (badge) {
+      badge.className = 'question-status-badge done';
+      badge.textContent = '완료';
+    }
+    card.querySelectorAll('input').forEach(i => { i.disabled = true; });
+    const footer = card.querySelector('.question-card-footer');
+    if (footer) {
+      footer.outerHTML = `
+        <div class="question-answered-box">
+          <span class="answered-check-icon">✓</span>
+          <span class="answered-label">제출된 답변:</span>
+          <span class="answered-value">${escapeHtml(answerText || '선택 완료')}</span>
+        </div>
+      `;
+    }
   }
 
   function buildAssistantTurnBody(turn, forceOpen = false) {
@@ -2824,6 +2848,9 @@
       }
 
       const selectedTexts = [];
+      const selectedOptionIds = [];
+      let writeInResponse = '';
+
       for (const inp of inputs) {
         if (inp.value === '__OTHER__') {
           const otherInput = card.querySelector('.question-other-input');
@@ -2834,24 +2861,65 @@
             return;
           }
           selectedTexts.push(customText);
+          writeInResponse = customText;
         } else {
           selectedTexts.push(inp.value);
+          const optId = inp.getAttribute('data-opt-id') || inp.value;
+          selectedOptionIds.push(optId);
         }
       }
 
       const answerText = isMulti ? `A1: ${selectedTexts.join(', ')}` : `A1: ${selectedTexts[0]}`;
+      const qText = card.getAttribute('data-question-text') || '';
+      const turnIndex = Number(card.getAttribute('data-turn-index')) || null;
 
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span>전송 중...</span>';
 
-      try {
-        await executeDirectSend(answerText);
-        showToast('답변이 전송되었습니다.');
-      } catch (err) {
-        console.error('Failed to send question answer:', err);
-        alert(`전송 중 오류 발생: ${err.message}`);
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span>Submit</span><span class="btn-enter-icon">↵</span>';
+      const isDaemon = currentSession && (currentSession.cid || (currentSession.name && (currentSession.name.startsWith('rc_') || currentSession.name.startsWith('agy_'))));
+      const targetCid = currentSession?.cid || (currentSession?.name ? currentSession.name.replace(/^(rc_|agy_)/, '') : '');
+
+      if (isDaemon && targetCid) {
+        try {
+          const res = await fetch('/api/respond-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cid: targetCid,
+              session: currentSession.name,
+              stepIndex: turnIndex,
+              responses: [
+                {
+                  question: qText,
+                  selectedOptionIds: selectedOptionIds,
+                  writeInResponse: writeInResponse,
+                  skipped: false
+                }
+              ],
+              cancelled: false
+            })
+          });
+          const json = await res.json();
+          if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
+          showToast('답변이 성공적으로 전송되었습니다.');
+          markQuestionCardAnswered(card, selectedTexts.join(', '));
+        } catch (err) {
+          console.error('Failed to submit question via RPC:', err);
+          alert(`전송 중 오류 발생: ${err.message}`);
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<span>Submit</span><span class="btn-enter-icon">↵</span>';
+        }
+      } else {
+        try {
+          await executeDirectSend(answerText);
+          showToast('답변이 전송되었습니다.');
+          markQuestionCardAnswered(card, answerText);
+        } catch (err) {
+          console.error('Failed to send question answer:', err);
+          alert(`전송 중 오류 발생: ${err.message}`);
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<span>Submit</span><span class="btn-enter-icon">↵</span>';
+        }
       }
       return;
     }
@@ -2860,13 +2928,57 @@
     const skipBtn = e.target.closest('.question-btn-skip');
     if (skipBtn) {
       e.stopPropagation();
+      const card = skipBtn.closest('.question-card');
+      if (!card) return;
+
       skipBtn.disabled = true;
-      try {
-        await executeDirectSend('A1: Skip');
-        showToast('질문을 건너뛰었습니다.');
-      } catch (err) {
-        console.error('Failed to skip question:', err);
-        skipBtn.disabled = false;
+      skipBtn.innerText = '건너뛰는 중...';
+
+      const isDaemon = currentSession && (currentSession.cid || (currentSession.name && (currentSession.name.startsWith('rc_') || currentSession.name.startsWith('agy_'))));
+      const targetCid = currentSession?.cid || (currentSession?.name ? currentSession.name.replace(/^(rc_|agy_)/, '') : '');
+      const qText = card.getAttribute('data-question-text') || '';
+      const turnIndex = Number(card.getAttribute('data-turn-index')) || null;
+
+      if (isDaemon && targetCid) {
+        try {
+          const res = await fetch('/api/respond-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cid: targetCid,
+              session: currentSession.name,
+              stepIndex: turnIndex,
+              responses: [
+                {
+                  question: qText,
+                  selectedOptionIds: [],
+                  writeInResponse: '',
+                  skipped: true
+                }
+              ],
+              cancelled: false
+            })
+          });
+          const json = await res.json();
+          if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
+          showToast('질문을 건너뛰었습니다.');
+          markQuestionCardAnswered(card, '건너뜀 (Skip)');
+        } catch (err) {
+          console.error('Failed to skip question via RPC:', err);
+          alert(`Skip 처리 중 오류 발생: ${err.message}`);
+          skipBtn.disabled = false;
+          skipBtn.innerText = 'Skip';
+        }
+      } else {
+        try {
+          await executeDirectSend('A1: Skip');
+          showToast('질문을 건너뛰었습니다.');
+          markQuestionCardAnswered(card, 'Skip');
+        } catch (err) {
+          console.error('Failed to skip question:', err);
+          skipBtn.disabled = false;
+          skipBtn.innerText = 'Skip';
+        }
       }
       return;
     }
