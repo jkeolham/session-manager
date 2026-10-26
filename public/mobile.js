@@ -969,12 +969,17 @@
           if (turn.content && typeof turn.content === 'string' && turn.content.trim()) {
             prev.content = (prev.content ? prev.content + '\n\n' : '') + turn.content.trim();
           }
+          if (turn.questionData) {
+            prev.questionData = turn.questionData;
+          }
+          prev.index = turn.index || prev.index;
           prev.timestamp = turn.timestamp || prev.timestamp;
         } else {
           grouped.push({
             ...turn,
             thinkings: turn.thinking ? [turn.thinking.trim()] : [],
-            toolCalls: Array.isArray(turn.toolCalls) ? [...turn.toolCalls] : []
+            toolCalls: Array.isArray(turn.toolCalls) ? [...turn.toolCalls] : [],
+            questionData: turn.questionData || null
           });
         }
       } else {
@@ -1729,10 +1734,14 @@
             if (turn.content && typeof turn.content === 'string' && turn.content.trim()) {
               prevTurn.content = (prevTurn.content ? prevTurn.content + '\n\n' : '') + turn.content.trim();
             }
+            if (turn.questionData) {
+              prevTurn.questionData = turn.questionData;
+            }
+            prevTurn.index = turn.index || prevTurn.index;
             prevTurn.timestamp = turn.timestamp || prevTurn.timestamp;
             updateAssistantTurnElement(lastMsg, prevTurn);
             scrollToBottom();
-            if (prevTurn.content) {
+            if (prevTurn.content || prevTurn.questionData) {
               checkAndProcessQueue();
             }
             return;

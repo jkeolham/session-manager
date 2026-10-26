@@ -173,4 +173,57 @@ assert.strictEqual(answeredResult.turns[0].questionData.isPending, false, 'Quest
 assert.strictEqual(answeredResult.turns[0].questionData.isAnswered, true);
 assert.strictEqual(answeredResult.turns[0].questionData.answer, '옵션 A');
 
+// 8. Test groupTurnsForDisplay merging preserves questionData
+function simulateGroupTurnsForDisplay(rawTurns) {
+  const grouped = [];
+  for (const turn of rawTurns) {
+    if (turn.role === 'user') {
+      grouped.push({ ...turn });
+    } else if (turn.role === 'assistant') {
+      const prev = grouped[grouped.length - 1];
+      if (prev && prev.role === 'assistant') {
+        if (turn.thinking && typeof turn.thinking === 'string' && turn.thinking.trim()) {
+          prev.thinkings = prev.thinkings || (prev.thinking ? [prev.thinking] : []);
+          prev.thinkings.push(turn.thinking.trim());
+          prev.thinking = turn.thinking.trim();
+        }
+        if (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
+          prev.toolCalls = (prev.toolCalls || []).concat(turn.toolCalls);
+        }
+        if (turn.content && typeof turn.content === 'string' && turn.content.trim()) {
+          prev.content = (prev.content ? prev.content + '\n\n' : '') + turn.content.trim();
+        }
+        if (turn.questionData) {
+          prev.questionData = turn.questionData;
+        }
+        prev.index = turn.index || prev.index;
+        prev.timestamp = turn.timestamp || prev.timestamp;
+      } else {
+        grouped.push({
+          ...turn,
+          thinkings: turn.thinking ? [turn.thinking.trim()] : [],
+          toolCalls: Array.isArray(turn.toolCalls) ? [...turn.toolCalls] : [],
+          questionData: turn.questionData || null
+        });
+      }
+    }
+  }
+  return grouped;
+}
+
+const unmergedTurns = [
+  { role: 'user', content: '시작' },
+  { role: 'assistant', index: 1, toolCalls: [{ name: 'read_file' }] },
+  { role: 'assistant', index: 2, toolCalls: [{ name: 'read_file' }] },
+  { role: 'assistant', index: 3, toolCalls: [{ name: 'ask_question' }], questionData: { isPending: true, questions: [{ question: 'Q?' }] } }
+];
+
+const merged = simulateGroupTurnsForDisplay(unmergedTurns);
+assert.strictEqual(merged.length, 2, 'Should group into 1 user turn and 1 assistant turn');
+assert.strictEqual(merged[1].role, 'assistant');
+assert.strictEqual(merged[1].toolCalls.length, 3);
+assert(merged[1].questionData, 'Merged assistant turn MUST retain questionData');
+assert.strictEqual(merged[1].questionData.isPending, true);
+assert.strictEqual(merged[1].index, 3, 'Merged assistant turn should have latest index 3');
+
 console.log('✅ test-transcript-parser passed!');
