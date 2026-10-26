@@ -2124,14 +2124,22 @@
 
     try {
       const modelObj = getSelectedModel();
-      const modelToUse = requestedModel || modelObj?.model || 'MODEL_PLACEHOLDER_M318';
+      let tier = 'flash';
+      const mId = (requestedModel || modelObj?.id || modelObj?.model || '').toLowerCase();
+      if (mId.includes('flash-lite') || mId.includes('flash_lite') || mId.includes('lite')) {
+        tier = 'flash_lite';
+      } else if (mId.includes('pro') || mId.includes('opus') || mId.includes('sonnet') || mId.includes('claude')) {
+        tier = 'pro';
+      } else {
+        tier = 'flash';
+      }
 
       const res = await fetch('/api/new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: text.trim(),
-          model: modelToUse
+          model: tier
         })
       });
       const data = await res.json().catch(() => ({}));

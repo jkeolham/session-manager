@@ -198,7 +198,19 @@ def ls_rpc(method, body):
 
 
 def new_conversation(text, title=None, model=None):
-    args = ["new-conversation"] + ([f"--title={title}"] if title else []) + ([f"--model={model}"] if model else [])
+    tier = None
+    if model:
+        m = str(model).lower()
+        if 'flash_lite' in m or 'flash-lite' in m or 'lite' in m:
+            tier = 'flash_lite'
+        elif any(k in m for k in ('pro', 'opus', 'sonnet', 'claude', 'm35')):
+            tier = 'pro'
+        elif any(k in m for k in ('flash', 'm318', 'gemini')):
+            tier = 'flash'
+        elif model in ('flash', 'pro', 'flash_lite', 'inherit'):
+            tier = model
+
+    args = ["new-conversation"] + ([f"--title={title}"] if title else []) + ([f"--model={tier}"] if tier else [])
     env = dict(os.environ, ANTIGRAVITY_LS_ADDRESS=LS_ADDRESS, ANTIGRAVITY_CSRF_TOKEN=CSRF_TOKEN)
     try:
         proc = subprocess.run([AGY, "agentapi", *args, "--", text], env=env,
@@ -207,7 +219,10 @@ def new_conversation(text, title=None, model=None):
         return {"error": "agentapi timed out"}
     raw = (proc.stdout or proc.stderr or "").strip()
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
+        if isinstance(data, dict) and data.get("error"):
+            return {"error": data["error"]}
+        return data
     except json.JSONDecodeError:
         return {"error": raw[:2000] or f"agentapi exited {proc.returncode}"}
 
