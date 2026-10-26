@@ -2881,6 +2881,7 @@
         otherInputWrap.classList.add('hidden');
       }
     }
+  });
 
   // --- Code Review / Diff Modal ---
   const reviewModal = document.getElementById('review-modal');

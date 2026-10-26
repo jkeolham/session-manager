@@ -12,6 +12,12 @@ function run() {
   assert(fs.existsSync(cssPath), 'mobile.css should exist');
   assert(fs.existsSync(jsPath), 'mobile.js should exist');
 
+  // Verify JavaScript syntax of mobile.js
+  const { execFileSync } = require('child_process');
+  assert.doesNotThrow(() => {
+    execFileSync('node', ['-c', jsPath]);
+  }, 'mobile.js should have valid JavaScript syntax');
+
   const html = fs.readFileSync(htmlPath, 'utf8');
   assert(html.includes('viewport'), 'index.html must include viewport meta tag');
   assert(html.includes('interactive-widget=resizes-content'), 'index.html should specify interactive-widget=resizes-content');
