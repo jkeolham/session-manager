@@ -29,6 +29,8 @@ function run() {
   assert(html.includes('usage-modal-sheet'), 'index.html must include usage-modal-sheet');
   assert(html.includes('btn-voice'), 'index.html must include btn-voice');
   assert(html.includes('voice-recording-bar'), 'index.html must include voice-recording-bar');
+  assert(html.includes('session-action-menu'), 'index.html must include session-action-menu');
+  assert(html.includes('global-toast'), 'index.html must include global-toast');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
@@ -41,6 +43,9 @@ function run() {
   assert(css.includes('session-status-spinner'), 'mobile.css should style session-status-spinner');
   assert(css.includes('session-status-dot'), 'mobile.css should style session-status-dot');
   assert(css.includes('session-status-time'), 'mobile.css should style session-status-time');
+  assert(css.includes('session-more-btn'), 'mobile.css should style session-more-btn');
+  assert(css.includes('session-action-menu'), 'mobile.css should style session-action-menu');
+  assert(css.includes('global-toast'), 'mobile.css should style global-toast');
   assert(css.includes('btn-toggle-tools'), 'mobile.css should style btn-toggle-tools');
   assert(css.includes('user-processing-indicator'), 'mobile.css should style user-processing-indicator');
   assert(css.includes('queued-card'), 'mobile.css should style queued-card');
@@ -59,6 +64,10 @@ function run() {
   assert(css.includes('attach-link-disclosure'), 'mobile.css should style attach-link-disclosure');
 
   const js = fs.readFileSync(jsPath, 'utf8');
+  assert(js.includes('initSessionActionMenu'), 'mobile.js should include initSessionActionMenu');
+  assert(js.includes('openSessionActionMenu'), 'mobile.js should include openSessionActionMenu');
+  assert(js.includes('closeSessionActionMenu'), 'mobile.js should include closeSessionActionMenu');
+  assert(js.includes('showToast'), 'mobile.js should include showToast');
   assert(js.includes('extractUserTurnAttachments'), 'mobile.js should include extractUserTurnAttachments');
   assert(js.includes('loadAttachmentText'), 'mobile.js should include loadAttachmentText');
   assert(js.includes('initModelPicker'), 'mobile.js should include initModelPicker');

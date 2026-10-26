@@ -373,6 +373,7 @@
   }
 
   function closeDrawer() {
+    closeSessionActionMenu();
     drawer.classList.remove('open');
     drawerBackdrop.classList.remove('active');
   }
@@ -448,29 +449,21 @@
           statusHtml = `<span class="session-status-time">${escapeHtml(timeAgo)}</span>`;
         }
 
-        const copyId = item.cid || item.name || '';
-
         html += `
-          <div class="session-item ${activeClass}" data-session="${escapeHtml(JSON.stringify(item))}">
+          <div class="session-item ${activeClass}" data-session="${escapeHtml(JSON.stringify(item))}" data-category="${escapeHtml(cat.key)}">
             <div class="session-item-info">
               <div class="session-item-name">${escapeHtml(displayName)}</div>
               ${subName ? `<div class="session-item-title">${escapeHtml(subName)}</div>` : ''}
             </div>
             <div class="session-item-right">
               ${statusHtml ? `<div class="session-status-indicator">${statusHtml}</div>` : ''}
-              ${copyId ? `<button class="session-copy-id-btn" type="button" aria-label="세션 ID 복사" title="세션 ID 복사 (${escapeHtml(copyId)})" data-copy-id="${escapeHtml(copyId)}">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-              </button>` : ''}
-              <button class="session-rename-btn" type="button" aria-label="세션 이름 변경" title="세션 이름 변경">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              <button class="session-more-btn" type="button" aria-label="추가 옵션" title="추가 옵션">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="2.2"></circle>
+                  <circle cx="12" cy="12" r="2.2"></circle>
+                  <circle cx="12" cy="19" r="2.2"></circle>
                 </svg>
               </button>
-              ${cat.key === 'agy' && item.cid ? `<button class="session-delete-btn" type="button" aria-label="대화 삭제" title="대화 삭제">🗑</button>` : ''}
             </div>
           </div>
         `;
@@ -486,42 +479,16 @@
     sessionListEl.innerHTML = html;
 
     // Attach click listeners
-    sessionListEl.querySelectorAll('.session-copy-id-btn').forEach(btn => {
+    sessionListEl.querySelectorAll('.session-more-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const copyText = btn.getAttribute('data-copy-id');
-        if (!copyText) return;
-        navigator.clipboard.writeText(copyText).then(() => {
-          const origHtml = btn.innerHTML;
-          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-          btn.classList.add('copied');
-          setTimeout(() => {
-            btn.innerHTML = origHtml;
-            btn.classList.remove('copied');
-          }, 1500);
-        }).catch(err => {
-          console.error('Failed to copy session id:', err);
-        });
+        openSessionActionMenu(btn);
       });
     });
 
-    sessionListEl.querySelectorAll('.session-rename-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const itemEl = btn.closest('.session-item');
-        const sessionData = JSON.parse(itemEl.getAttribute('data-session'));
-        renameSession(sessionData, itemEl);
-      });
-    });
-
-    sessionListEl.querySelectorAll('.session-delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteSession(JSON.parse(btn.closest('.session-item').getAttribute('data-session')));
-      });
-    });
     sessionListEl.querySelectorAll('.session-item').forEach(el => {
       el.addEventListener('click', () => {
+        closeSessionActionMenu();
         const dataStr = el.getAttribute('data-session');
         if (dataStr) {
           const session = JSON.parse(dataStr);
@@ -529,6 +496,158 @@
           closeDrawer();
         }
       });
+    });
+  }
+
+  // --- Global Toast Notification ---
+  let toastTimer = null;
+  function showToast(message) {
+    const toast = document.getElementById('global-toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.remove('hidden');
+    // Force DOM reflow for CSS transition
+    void toast.offsetWidth;
+    toast.classList.add('visible');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('visible');
+      setTimeout(() => {
+        if (!toast.classList.contains('visible')) {
+          toast.classList.add('hidden');
+        }
+      }, 200);
+    }, 2000);
+  }
+
+  // --- Session Item Action Menu (Kebab Dropdown) ---
+  const sessionActionMenu = document.getElementById('session-action-menu');
+
+  function openSessionActionMenu(btn) {
+    if (!sessionActionMenu) return;
+
+    // Toggle: if clicking the active button again, close menu
+    if (sessionActionMenu.__targetBtn === btn && !sessionActionMenu.classList.contains('hidden')) {
+      closeSessionActionMenu();
+      return;
+    }
+
+    closeSessionActionMenu();
+
+    const itemEl = btn.closest('.session-item');
+    if (!itemEl) return;
+    const sessionDataStr = itemEl.getAttribute('data-session');
+    if (!sessionDataStr) return;
+    const sessionData = JSON.parse(sessionDataStr);
+    const catKey = itemEl.getAttribute('data-category') || '';
+
+    // Configure action visibility
+    const copyId = sessionData.cid || sessionData.name || '';
+    const copyBtn = sessionActionMenu.querySelector('[data-action="copy-id"]');
+    const deleteBtn = sessionActionMenu.querySelector('[data-action="delete"]');
+
+    if (copyBtn) {
+      copyBtn.style.display = copyId ? 'flex' : 'none';
+      copyBtn.setAttribute('data-copy-id', copyId);
+    }
+
+    if (deleteBtn) {
+      deleteBtn.style.display = (catKey === 'agy' && sessionData.cid) ? 'flex' : 'none';
+    }
+
+    sessionActionMenu.__targetSession = sessionData;
+    sessionActionMenu.__targetItemEl = itemEl;
+    sessionActionMenu.__targetBtn = btn;
+    btn.classList.add('active');
+
+    sessionActionMenu.classList.remove('hidden');
+    sessionActionMenu.setAttribute('aria-hidden', 'false');
+
+    // Position menu relative to button
+    const rect = btn.getBoundingClientRect();
+    const menuWidth = sessionActionMenu.offsetWidth || 154;
+    const menuHeight = sessionActionMenu.offsetHeight || 110;
+
+    let top = rect.bottom + 6;
+    let left = rect.right - menuWidth;
+
+    // Flip up if bottom overflows viewport
+    if (top + menuHeight > window.innerHeight - 10) {
+      top = rect.top - menuHeight - 6;
+    }
+    // Prevent left edge overflow
+    if (left < 10) {
+      left = 10;
+    }
+
+    sessionActionMenu.style.top = `${Math.round(top)}px`;
+    sessionActionMenu.style.left = `${Math.round(left)}px`;
+  }
+
+  function closeSessionActionMenu() {
+    if (!sessionActionMenu || sessionActionMenu.classList.contains('hidden')) return;
+    if (sessionActionMenu.__targetBtn) {
+      sessionActionMenu.__targetBtn.classList.remove('active');
+    }
+    sessionActionMenu.classList.add('hidden');
+    sessionActionMenu.setAttribute('aria-hidden', 'true');
+    sessionActionMenu.__targetSession = null;
+    sessionActionMenu.__targetItemEl = null;
+    sessionActionMenu.__targetBtn = null;
+  }
+
+  function initSessionActionMenu() {
+    if (!sessionActionMenu) return;
+
+    // Handle menu item actions
+    sessionActionMenu.addEventListener('click', async (e) => {
+      const itemBtn = e.target.closest('.session-action-item');
+      if (!itemBtn) return;
+      e.stopPropagation();
+
+      const action = itemBtn.getAttribute('data-action');
+      const session = sessionActionMenu.__targetSession;
+      const itemEl = sessionActionMenu.__targetItemEl;
+
+      closeSessionActionMenu();
+
+      if (!session) return;
+
+      if (action === 'copy-id') {
+        const copyText = session.cid || session.name || '';
+        if (copyText) {
+          try {
+            await navigator.clipboard.writeText(copyText);
+            showToast('세션 ID가 복사되었습니다.');
+          } catch (err) {
+            console.error('Failed to copy session id:', err);
+            prompt('세션 ID를 복사하세요:', copyText);
+          }
+        }
+      } else if (action === 'rename') {
+        renameSession(session, itemEl);
+      } else if (action === 'delete') {
+        deleteSession(session);
+      }
+    });
+
+    // Close when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#session-action-menu') && !e.target.closest('.session-more-btn')) {
+        closeSessionActionMenu();
+      }
+    });
+
+    // Close on drawer scroll
+    const drawerContent = document.getElementById('drawer-content');
+    if (drawerContent) {
+      drawerContent.addEventListener('scroll', closeSessionActionMenu, { passive: true });
+    }
+
+    // Close on window resize & ESC key
+    window.addEventListener('resize', closeSessionActionMenu);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSessionActionMenu();
     });
   }
 
@@ -3280,6 +3399,7 @@
   // --- Initial Load ---
   initModelPicker();
   initVoiceRecognition();
+  initSessionActionMenu();
 
   const currentSessionTitleEl = document.getElementById('current-session-title');
   if (currentSessionTitleEl) {
