@@ -46,10 +46,19 @@ export function resolveTranscriptPath(cid, sessionName) {
     path.join(home, '.gemini/antigravity-ide/brain')
   ];
 
+  function getBestTranscript(dir) {
+    // Prefer transcript_full.jsonl to prevent content truncation on long turns/tables
+    const full = path.join(dir, '.system_generated/logs/transcript_full.jsonl');
+    if (fs.existsSync(full)) return full;
+    const compact = path.join(dir, '.system_generated/logs/transcript.jsonl');
+    if (fs.existsSync(compact)) return compact;
+    return null;
+  }
+
   if (cid) {
     for (const bDir of brainDirs) {
-      const p = path.join(bDir, cid, '.system_generated/logs/transcript.jsonl');
-      if (fs.existsSync(p)) return p;
+      const best = getBestTranscript(path.join(bDir, cid));
+      if (best) return best;
     }
   }
 
@@ -65,8 +74,8 @@ export function resolveTranscriptPath(cid, sessionName) {
         const entries = fs.readdirSync(bDir);
         for (const entry of entries) {
           if (entry.startsWith(prefix)) {
-            const p = path.join(bDir, entry, '.system_generated/logs/transcript.jsonl');
-            if (fs.existsSync(p)) return p;
+            const best = getBestTranscript(path.join(bDir, entry));
+            if (best) return best;
           }
         }
       } catch (e) {}

@@ -833,6 +833,7 @@ a:hover code,
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
   margin: 14px 0 18px 0;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -842,6 +843,7 @@ a:hover code,
 
 .table-container table {
   width: 100%;
+  min-width: 580px;
   border-collapse: collapse;
   text-align: left;
   font-size: 13.5px;
@@ -879,14 +881,18 @@ a:hover code,
   padding: 11px 14px;
   color: #e3e3e3;
   vertical-align: middle;
+  word-break: keep-all;
 }
 
-/* 첫 번째 열: 세션 ID / 코드 스타일 (대시보드 골드 모노스페이스) */
+/* 설명 등 긴 텍스트를 담는 마지막 열을 제외하고, 날짜/요일/구분/물때 등 앞쪽 열은 줄바꿈 방지 */
+.table-container td:not(:last-child) {
+  white-space: nowrap;
+}
+
+/* 첫 번째 열: 대시보드 골드 강조 */
 .table-container td:first-child {
   color: #e2c08d;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
 }
 

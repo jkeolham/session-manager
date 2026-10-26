@@ -200,10 +200,17 @@
 
     // 2. Tables
     parsed = parsed.replace(/^\|(.+)\|\r?\n\|([-: |]+)\|\r?\n((?:\|.*\|\r?\n?)*)/gm, (match, headerLine, alignLine, bodyLines) => {
+      const formatCell = (c) => {
+        let t = escapeHtml(c);
+        t = t.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+        t = t.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+        t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+        return t;
+      };
       const headers = headerLine.split('|').map(h => h.trim()).filter(h => h.length > 0);
       const rows = bodyLines.trim().split('\n').map(row => row.split('|').map(c => c.trim()).filter(c => c.length > 0));
-      let ths = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
-      let trs = rows.map(r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+      let ths = headers.map(h => `<th>${formatCell(h)}</th>`).join('');
+      let trs = rows.map(r => `<tr>${r.map(c => `<td>${formatCell(c)}</td>`).join('')}</tr>`).join('');
       return `<div class="table-container"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
     });
 
