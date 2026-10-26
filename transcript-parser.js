@@ -51,20 +51,90 @@ function extractUserAttachments(rawText) {
   return { text, attachments };
 }
 
+function extractQuestionData(toolCalls, subsequentItems) {
+  const askCall = toolCalls.find(tc => tc.name === 'ask_question');
+  if (!askCall) return null;
+
+  let rawQuestions = askCall.args?.questions;
+  if (typeof rawQuestions === 'string') {
+    try {
+      rawQuestions = JSON.parse(rawQuestions);
+    } catch (e) {}
+  }
+
+  const list = [];
+  if (Array.isArray(rawQuestions)) {
+    for (const q of rawQuestions) {
+      if (!q) continue;
+      list.push({
+        question: q.question || '',
+        is_multi_select: !!q.is_multi_select,
+        options: Array.isArray(q.options) ? q.options : []
+      });
+    }
+  } else if (rawQuestions && typeof rawQuestions === 'object') {
+    list.push({
+      question: rawQuestions.question || '',
+      is_multi_select: !!rawQuestions.is_multi_select,
+      options: Array.isArray(rawQuestions.options) ? rawQuestions.options : []
+    });
+  }
+
+  if (list.length === 0) return null;
+
+  // Determine if question has already been answered
+  let isAnswered = false;
+  let answer = null;
+
+  if (Array.isArray(subsequentItems)) {
+    for (const item of subsequentItems) {
+      if (item.type === 'GENERIC' && item.content) {
+        const text = String(item.content);
+        const match = text.match(/A\d+:\s*([^\r\n]+)/i);
+        if (match) {
+          isAnswered = true;
+          answer = match[1].trim();
+          break;
+        } else if (text.includes('Completed At:')) {
+          isAnswered = true;
+          answer = text.split('\n').pop()?.trim() || null;
+          break;
+        }
+      } else if (item.type === 'PLANNER_RESPONSE' || item.type === 'USER_INPUT') {
+        isAnswered = true;
+        break;
+      }
+    }
+  }
+
+  return {
+    isPending: !isAnswered,
+    isAnswered: isAnswered,
+    answer: answer,
+    questions: list
+  };
+}
+
 function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
   if (!rawText || !rawText.trim()) {
     return { turns: [], totalCount: 0, hasEarlier: false, earliestIndex: null, latestIndex: null };
   }
 
   const lines = rawText.trim().split('\n');
-  const allTurns = [];
-
+  const items = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-
     try {
-      const obj = JSON.parse(line);
+      items.push(JSON.parse(line));
+    } catch (e) {}
+  }
+
+  const allTurns = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const obj = items[i];
+    try {
       if (obj.type === 'USER_INPUT') {
         const cleaned = cleanUserMessage(obj.content);
         if (!cleaned) continue;
@@ -103,6 +173,8 @@ function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
                 label = 'View ' + parts[parts.length - 1];
               } else if (toolName === 'search_web' && args.query) {
                 label = 'Search web: ' + cleanString(args.query);
+              } else if (toolName === 'ask_question') {
+                label = '질문 (선택지 제시)';
               } else {
                 label = toolName;
               }
@@ -120,19 +192,29 @@ function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
         const content = obj.content || '';
         const thinking = obj.thinking || null;
 
-        // Skip completely empty turns
-        if (!content.trim() && !thinking && toolCalls.length === 0) {
+        // Extract interactive question data if present
+        const subsequentItems = items.slice(i + 1);
+        const questionData = extractQuestionData(toolCalls, subsequentItems);
+
+        // Skip completely empty turns (unless it has questionData)
+        if (!content.trim() && !thinking && toolCalls.length === 0 && !questionData) {
           continue;
         }
 
-        allTurns.push({
+        const turnObj = {
           index: obj.step_index || allTurns.length + 1,
           role: 'assistant',
           content,
           toolCalls,
           thinking,
           timestamp: obj.timestamp || obj.created_at || null
-        });
+        };
+
+        if (questionData) {
+          turnObj.questionData = questionData;
+        }
+
+        allTurns.push(turnObj);
       }
     } catch (e) {
       // Ignore corrupted lines safely

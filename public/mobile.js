@@ -1040,6 +1040,84 @@
     return { type, target, raw: tc };
   }
 
+  function renderQuestionCardHtml(qData, turnIndex) {
+    if (!qData || !Array.isArray(qData.questions) || qData.questions.length === 0) return '';
+    const isPending = !!qData.isPending;
+    const isAnswered = !!qData.isAnswered;
+
+    return qData.questions.map((q, qIdx) => {
+      const isMulti = !!q.is_multi_select;
+      const inputType = isMulti ? 'checkbox' : 'radio';
+      const inputName = `q_${turnIndex || 'latest'}_${qIdx}`;
+
+      const optionsHtml = (q.options || []).map((opt, optIdx) => {
+        const isRec = opt.includes('(Recommended)');
+        const cleanOpt = opt.replace(/^\(Recommended\)\s*/i, '').trim();
+        // 기본 선택: 추천 옵션이거나 첫 번째 옵션
+        const isChecked = isPending && (isRec || optIdx === 0);
+
+        return `
+          <label class="question-option-item ${isRec ? 'recommended' : ''}">
+            <input type="${inputType}" name="${inputName}" value="${escapeHtml(opt)}" ${isChecked ? 'checked' : ''} ${!isPending ? 'disabled' : ''}>
+            <div class="option-content">
+              <span class="option-num">${optIdx + 1}</span>
+              <div class="option-text-wrap">
+                ${isRec ? '<span class="question-rec-badge">Recommended</span>' : ''}
+                <span class="option-text">${escapeHtml(cleanOpt)}</span>
+              </div>
+            </div>
+          </label>
+        `;
+      }).join('');
+
+      const otherOptionHtml = `
+        <label class="question-option-item other-option">
+          <input type="${inputType}" name="${inputName}" value="__OTHER__" ${!isPending ? 'disabled' : ''}>
+          <div class="option-content">
+            <span class="option-num">${(q.options || []).length + 1}</span>
+            <span class="option-text">Other (직접 입력)</span>
+          </div>
+        </label>
+        <div class="question-other-input-wrap hidden">
+          <input type="text" class="question-other-input" placeholder="답변을 직접 입력하세요..." ${!isPending ? 'disabled' : ''}>
+        </div>
+      `;
+
+      return `
+        <div class="question-card ${isPending ? 'pending' : 'answered'}" data-turn-index="${turnIndex || ''}" data-multi="${isMulti ? 'true' : 'false'}">
+          <div class="question-card-header">
+            <div class="question-header-left">
+              <span class="question-badge-icon">💬</span>
+              <span class="question-title">${escapeHtml(q.question)}</span>
+            </div>
+            ${isPending ? '<span class="question-status-badge">선택 필요</span>' : '<span class="question-status-badge done">완료</span>'}
+          </div>
+
+          <div class="question-options-list">
+            ${optionsHtml}
+            ${otherOptionHtml}
+          </div>
+
+          ${isPending ? `
+            <div class="question-card-footer">
+              <button type="button" class="question-btn-skip">Skip</button>
+              <button type="button" class="question-btn-submit">
+                <span>Submit</span>
+                <span class="btn-enter-icon">↵</span>
+              </button>
+            </div>
+          ` : `
+            <div class="question-answered-box">
+              <span class="answered-check-icon">✓</span>
+              <span class="answered-label">제출된 답변:</span>
+              <span class="answered-value">${escapeHtml(qData.answer || '선택 완료')}</span>
+            </div>
+          `}
+        </div>
+      `;
+    }).join('');
+  }
+
   function buildAssistantTurnBody(turn, forceOpen = false) {
     let bodyHtml = '';
 
@@ -1061,11 +1139,19 @@
     const toolCount = toolList.length;
     const hasWorkProcess = hasThinkings || toolCount > 0;
     const content = (turn.content || turn.text || '').trim();
-    const isGenerating = !content;
+
+    const qData = turn.questionData || null;
+    const hasPendingQuestion = !!(qData && qData.isPending);
+    const hasAnsweredQuestion = !!(qData && qData.isAnswered);
+    const hasQuestion = !!(qData && qData.questions && qData.questions.length > 0);
+
+    const isGenerating = !content && !hasPendingQuestion;
 
     // Claude 앱 스타일 1줄 라이브 상태 텍스트
     let liveLabel = '● Thinking...';
-    if (toolCount > 0) {
+    if (hasPendingQuestion) {
+      liveLabel = '❓ 질문 선택 대기 중 (Waiting for choice)...';
+    } else if (toolCount > 0) {
       const lastToolInfo = formatClaudeTool(toolList[toolList.length - 1]);
       liveLabel = `⚡ Running ${lastToolInfo.type}: ${lastToolInfo.target}...`;
     }
@@ -1073,7 +1159,9 @@
     if (hasWorkProcess) {
       // Claude 앱 스타일 완료 요약 라벨
       let workedLabel = '';
-      if (toolCount > 0) {
+      if (hasPendingQuestion) {
+        workedLabel = `Worked (${toolCount} tool${toolCount > 1 ? 's' : ''}) · 질문 대기 중`;
+      } else if (toolCount > 0) {
         workedLabel = `Worked (${toolCount} tool${toolCount > 1 ? 's' : ''})`;
       } else {
         workedLabel = 'Thought';
@@ -1106,7 +1194,7 @@
             else if (Object.keys(tc.args).length > 0) cmdStr = JSON.stringify(tc.args, null, 2);
           }
           return `
-            <details class="claude-tree-item tool" ${idx === toolCount - 1 && !isGenerating ? 'open' : ''}>
+            <details class="claude-tree-item tool" ${idx === toolCount - 1 && !isGenerating && !hasPendingQuestion ? 'open' : ''}>
               <summary class="claude-item-head">
                 <span class="claude-check-icon">✓</span>
                 <span class="claude-tool-badge">${escapeHtml(info.type)}</span>
@@ -1129,12 +1217,19 @@
         `;
       }
 
+      const statusIconHtml = hasPendingQuestion
+        ? '<span class="claude-pill-icon question-waiting-icon">❓</span>'
+        : (isGenerating ? '<span class="claude-live-spinner"></span>' : '<span class="claude-pill-icon">⚙️</span>');
+      const pillLabelText = hasPendingQuestion
+        ? '질문 선택 대기 중 (Waiting for choice)'
+        : (isGenerating ? liveLabel : workedLabel);
+
       bodyHtml += `
-        <details class="claude-work-pill work-process-block ${isGenerating ? 'running' : ''}" ${forceOpen ? 'open' : ''}>
+        <details class="claude-work-pill work-process-block ${isGenerating ? 'running' : ''} ${hasPendingQuestion ? 'waiting-question' : ''}" ${forceOpen || hasPendingQuestion ? 'open' : ''}>
           <summary class="claude-pill-summary work-process-summary">
             <div class="claude-pill-left">
-              ${isGenerating ? '<span class="claude-live-spinner"></span>' : '<span class="claude-pill-icon">⚙️</span>'}
-              <span class="claude-pill-text work-process-label">${escapeHtml(isGenerating ? liveLabel : workedLabel)}</span>
+              ${statusIconHtml}
+              <span class="claude-pill-text work-process-label">${escapeHtml(pillLabelText)}</span>
             </div>
             <span class="claude-pill-arrow">›</span>
           </summary>
@@ -1152,9 +1247,13 @@
       `;
     }
 
+    if (hasQuestion) {
+      bodyHtml += renderQuestionCardHtml(qData, turn.index);
+    }
+
     if (content) {
       bodyHtml += `<div class="turn-markdown">${renderMarkdown(content)}</div>`;
-    } else if (!hasWorkProcess && !isGenerating) {
+    } else if (!hasWorkProcess && !isGenerating && !hasQuestion) {
       bodyHtml += `<div class="turn-markdown empty-content">(내용 없음)</div>`;
     }
 
@@ -1802,8 +1901,17 @@
   function isSessionBusy() {
     if (isSending) return true;
     if (chatHistory && chatHistory.querySelector('.typing-msg')) return true;
-    if (currentSession && (currentSession.isRunning || currentSession.status === 'CASCADE_RUN_STATUS_RUNNING')) return true;
+
+    // 만약 질문 선택 카드가 대기 중이면(Pending question) 사용자가 입력해야 하므로 busy가 아님!
+    const pendingCard = chatHistory ? chatHistory.querySelector('.question-card.pending') : null;
+    if (pendingCard) return false;
+
     const lastMsg = chatHistory ? chatHistory.querySelector('.message.assistant:last-child') : null;
+    if (lastMsg && lastMsg.__turnData && lastMsg.__turnData.questionData && lastMsg.__turnData.questionData.isPending) {
+      return false;
+    }
+
+    if (currentSession && (currentSession.isRunning || currentSession.status === 'CASCADE_RUN_STATUS_RUNNING')) return true;
     if (lastMsg && lastMsg.__turnData && !lastMsg.__turnData.content) return true;
     return false;
   }
@@ -2690,7 +2798,89 @@
       }
       return;
     }
+
+    // 4. Question interactive Submit button
+    const submitBtn = e.target.closest('.question-btn-submit');
+    if (submitBtn) {
+      e.stopPropagation();
+      const card = submitBtn.closest('.question-card');
+      if (!card) return;
+
+      const isMulti = card.getAttribute('data-multi') === 'true';
+      const inputs = Array.from(card.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked'));
+
+      if (inputs.length === 0) {
+        alert('선택지를 선택하거나 답변을 직접 입력해주세요.');
+        return;
+      }
+
+      const selectedTexts = [];
+      for (const inp of inputs) {
+        if (inp.value === '__OTHER__') {
+          const otherInput = card.querySelector('.question-other-input');
+          const customText = otherInput?.value.trim();
+          if (!customText) {
+            alert('직접 입력 옵션을 선택하셨습니다. 답변 내용을 입력해주세요.');
+            otherInput?.focus();
+            return;
+          }
+          selectedTexts.push(customText);
+        } else {
+          selectedTexts.push(inp.value);
+        }
+      }
+
+      const answerText = isMulti ? `A1: ${selectedTexts.join(', ')}` : `A1: ${selectedTexts[0]}`;
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span>전송 중...</span>';
+
+      try {
+        await executeDirectSend(answerText);
+        showToast('답변이 전송되었습니다.');
+      } catch (err) {
+        console.error('Failed to send question answer:', err);
+        alert(`전송 중 오류 발생: ${err.message}`);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Submit</span><span class="btn-enter-icon">↵</span>';
+      }
+      return;
+    }
+
+    // 5. Question interactive Skip button
+    const skipBtn = e.target.closest('.question-btn-skip');
+    if (skipBtn) {
+      e.stopPropagation();
+      skipBtn.disabled = true;
+      try {
+        await executeDirectSend('A1: Skip');
+        showToast('질문을 건너뛰었습니다.');
+      } catch (err) {
+        console.error('Failed to skip question:', err);
+        skipBtn.disabled = false;
+      }
+      return;
+    }
   });
+
+  // Handle radio / checkbox changes for question interactive cards
+  chatHistory.addEventListener('change', (e) => {
+    const input = e.target;
+    if (!input.matches('.question-option-item input')) return;
+    const card = input.closest('.question-card');
+    if (!card) return;
+
+    const otherInputWrap = card.querySelector('.question-other-input-wrap');
+    const otherRadio = card.querySelector('input[value="__OTHER__"]');
+    if (otherInputWrap && otherRadio) {
+      if (otherRadio.checked) {
+        otherInputWrap.classList.remove('hidden');
+        const textInp = otherInputWrap.querySelector('.question-other-input');
+        if (textInp) textInp.focus();
+      } else {
+        otherInputWrap.classList.add('hidden');
+      }
+    }
 
   // --- Code Review / Diff Modal ---
   const reviewModal = document.getElementById('review-modal');

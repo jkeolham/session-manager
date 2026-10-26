@@ -111,4 +111,66 @@ assert.strictEqual(attachResult.turns[0].attachments.length, 1);
 assert.strictEqual(attachResult.turns[0].attachments[0].name, 'test.txt');
 assert.strictEqual(attachResult.turns[0].attachments[0].url, '/uploads/test.txt');
 
+// 7. Test ask_question pending and answered extraction
+const questionJsonl = [
+  JSON.stringify({
+    step_index: 10,
+    source: "MODEL",
+    type: "PLANNER_RESPONSE",
+    status: "DONE",
+    tool_calls: [{
+      name: "ask_question",
+      args: {
+        questions: [{
+          question: "어느 방향으로 개발할까요?",
+          is_multi_select: false,
+          options: ["옵션 A", "옵션 B"]
+        }]
+      }
+    }]
+  })
+].join('\n');
+
+const pendingResult = parseTranscriptString(questionJsonl, 10);
+assert.strictEqual(pendingResult.turns.length, 1);
+assert(pendingResult.turns[0].questionData, 'Turn should have questionData');
+assert.strictEqual(pendingResult.turns[0].questionData.isPending, true, 'Question should be pending');
+assert.strictEqual(pendingResult.turns[0].questionData.isAnswered, false);
+assert.strictEqual(pendingResult.turns[0].questionData.questions[0].question, '어느 방향으로 개발할까요?');
+assert.strictEqual(pendingResult.turns[0].questionData.questions[0].options.length, 2);
+
+// Answered test
+const answeredJsonl = [
+  JSON.stringify({
+    step_index: 10,
+    source: "MODEL",
+    type: "PLANNER_RESPONSE",
+    status: "DONE",
+    tool_calls: [{
+      name: "ask_question",
+      args: {
+        questions: [{
+          question: "어느 방향으로 개발할까요?",
+          is_multi_select: false,
+          options: ["옵션 A", "옵션 B"]
+        }]
+      }
+    }]
+  }),
+  JSON.stringify({
+    step_index: 11,
+    source: "MODEL",
+    type: "GENERIC",
+    status: "DONE",
+    content: "Created At: ...\nCompleted At: ...\nA1: 옵션 A"
+  })
+].join('\n');
+
+const answeredResult = parseTranscriptString(answeredJsonl, 10);
+assert.strictEqual(answeredResult.turns.length, 1);
+assert(answeredResult.turns[0].questionData, 'Turn should have questionData');
+assert.strictEqual(answeredResult.turns[0].questionData.isPending, false, 'Question should not be pending');
+assert.strictEqual(answeredResult.turns[0].questionData.isAnswered, true);
+assert.strictEqual(answeredResult.turns[0].questionData.answer, '옵션 A');
+
 console.log('✅ test-transcript-parser passed!');

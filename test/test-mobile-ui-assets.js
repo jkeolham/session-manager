@@ -62,8 +62,11 @@ function run() {
   assert(css.includes('voice-btn.recording') || css.includes('.voice-btn.recording'), 'mobile.css should style voice-btn recording state');
   assert(css.includes('msg-attach-card'), 'mobile.css should style msg-attach-card');
   assert(css.includes('attach-link-disclosure'), 'mobile.css should style attach-link-disclosure');
+  assert(css.includes('question-card'), 'mobile.css should style question-card');
+  assert(css.includes('question-btn-submit'), 'mobile.css should style question-btn-submit');
 
   const js = fs.readFileSync(jsPath, 'utf8');
+  assert(js.includes('renderQuestionCardHtml'), 'mobile.js should include renderQuestionCardHtml');
   assert(js.includes('initSessionActionMenu'), 'mobile.js should include initSessionActionMenu');
   assert(js.includes('openSessionActionMenu'), 'mobile.js should include openSessionActionMenu');
   assert(js.includes('closeSessionActionMenu'), 'mobile.js should include closeSessionActionMenu');
