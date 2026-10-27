@@ -954,6 +954,16 @@ function activate(context) {
       placeHolder: 'e.g. music tagger'
     });
     if (title === undefined) return;
+
+    const modelChoice = await vscode.window.showQuickPick([
+      { label: '$(sparkle) Flash (Gemini 3.8 Flash)', value: 'flash', description: '빠르고 균형잡힌 기본 범용 모델' },
+      { label: '$(symbol-event) Pro (Claude 3.5 Sonnet / Gemini Pro)', value: 'pro', description: '심층 추론 및 복잡한 코드 작성용 모델' },
+      { label: '$(zap) Flash Lite (Gemini 3.8 Flash Lite)', value: 'flash_lite', description: '초고속 경량 모델' }
+    ], {
+      placeHolder: '대화에 사용할 모델 티어를 선택하세요 (기본: Flash)'
+    });
+    const selectedModel = modelChoice ? modelChoice.value : 'flash';
+
     const text = await vscode.window.showInputBox({
       prompt: 'First message to the agent',
       placeHolder: 'What should the agent work on?'
@@ -964,7 +974,11 @@ function activate(context) {
       const res = await fetch('http://127.0.0.1:8789/api/new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, title: title.trim() || undefined })
+        body: JSON.stringify({
+          text,
+          title: title.trim() || undefined,
+          model: selectedModel
+        })
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -975,6 +989,54 @@ function activate(context) {
       setTimeout(() => treeDataProvider.refresh(), 1500);
     } catch (e) {
       vscode.window.showErrorMessage(`Session manager (:8789) unreachable: ${e.message}`);
+    }
+  });
+
+  const renameCmd = vscode.commands.registerCommand('sessionManager.renameSession', async (arg) => {
+    let session = null;
+    if (arg && arg.session) {
+      session = arg.session;
+    } else if (arg && (arg.cid || arg.name)) {
+      session = arg;
+    }
+    if (!session) {
+      vscode.window.showErrorMessage('이름을 변경할 세션을 선택하세요.');
+      return;
+    }
+
+    const currentTitle = session.title || session.name || '';
+    const newTitle = await vscode.window.showInputBox({
+      prompt: '새 세션 이름을 입력하세요',
+      value: currentTitle,
+      validateInput: (val) => {
+        if (!val || !val.trim()) return '세션 이름은 비어 있을 수 없습니다.';
+        if (val.trim().length > 120) return '세션 이름은 120자를 초과할 수 없습니다.';
+        return null;
+      }
+    });
+
+    if (!newTitle || newTitle.trim() === currentTitle) return;
+
+    try {
+      const payload = session.cid
+        ? { cid: session.cid, title: newTitle.trim() }
+        : { session: session.name, newName: newTitle.trim() };
+
+      const res = await fetch('http://127.0.0.1:8789/api/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        vscode.window.showErrorMessage(`세션 이름 변경 실패: ${data.error || res.status}`);
+        return;
+      }
+
+      vscode.window.showInformationMessage(`세션 이름이 "${newTitle.trim()}"(으)로 변경되었습니다.`);
+      treeDataProvider.refresh();
+    } catch (e) {
+      vscode.window.showErrorMessage(`세션 매니저 연결 실패: ${e.message}`);
     }
   });
 
@@ -1042,11 +1104,17 @@ function activate(context) {
   watcher.onDidChange(() => treeDataProvider.smartRefresh(false));
   watcher.onDidCreate(() => treeDataProvider.smartRefresh(false));
 
+  const customTitlesWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(path.join(__dirname, 'data'), 'custom_titles.json')
+  );
+  customTitlesWatcher.onDidChange(() => treeDataProvider.smartRefresh(false));
+  customTitlesWatcher.onDidCreate(() => treeDataProvider.smartRefresh(false));
+
   context.subscriptions.push(
     openPanelCmd, attachCmd, attachRcCmd, reloadRcCmd, deleteRcCmd, refreshCmd, newAgyCmd, killCmd,
-    sendPromptCmd, focusComposerCmd,
+    renameCmd, sendPromptCmd, focusComposerCmd,
     composerViewReg, terminalChangeSub,
-    watcher, ideTranscriptWatcher, cliTranscriptWatcher,
+    watcher, customTitlesWatcher, ideTranscriptWatcher, cliTranscriptWatcher,
     { dispose: () => clearInterval(interval) }
   );
 }

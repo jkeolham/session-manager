@@ -231,6 +231,30 @@ class SessionChatPanelManager {
         setTimeout(() => sendTurnsToWebview(false), 1200);
         setTimeout(() => sendTurnsToWebview(false), 2500);
         setTimeout(() => sendTurnsToWebview(false), 4500);
+      } else if (data.command === 'respondQuestion') {
+        const cid = (record.session && record.session.cid) ? record.session.cid : null;
+        try {
+          fetch('http://127.0.0.1:8789/api/respond-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cid: cid,
+              session: record.sessionName,
+              stepIndex: data.stepIndex,
+              responses: data.responses,
+              cancelled: !!data.cancelled
+            })
+          }).then(res => res.json()).then(result => {
+            if (result.ok) {
+              setTimeout(() => sendTurnsToWebview(false), 400);
+              setTimeout(() => sendTurnsToWebview(false), 1200);
+            }
+          }).catch(e => {
+            console.error('[SessionChatPanel] Failed to respond to question:', e);
+          });
+        } catch (e) {
+          console.error('[SessionChatPanel] Error dispatching respond-question:', e);
+        }
       } else if (data.command === 'termActivate') {
         record.isTermActive = true;
         startTermFastPolling();

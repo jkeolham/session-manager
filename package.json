@@ -96,6 +96,11 @@
         "icon": "$(comment)"
       },
       {
+        "command": "sessionManager.renameSession",
+        "title": "Rename Session",
+        "icon": "$(edit)"
+      },
+      {
         "command": "sessionManager.focusComposer",
         "title": "Focus Prompt Composer",
         "icon": "$(edit)"
@@ -126,24 +131,29 @@
           "group": "inline@0"
         },
         {
+          "command": "sessionManager.renameSession",
+          "when": "viewItem == remoteControlItem || viewItem == sessionItem",
+          "group": "inline@1"
+        },
+        {
           "command": "sessionManager.reloadRemoteControl",
           "when": "viewItem == remoteControlItem",
-          "group": "inline@1"
+          "group": "inline@2"
         },
         {
           "command": "sessionManager.deleteRemoteControl",
           "when": "viewItem == remoteControlItem",
-          "group": "inline@2"
+          "group": "inline@3"
         },
         {
           "command": "sessionManager.attach",
           "when": "viewItem == sessionItem",
-          "group": "inline@1"
+          "group": "inline@2"
         },
         {
           "command": "sessionManager.kill",
           "when": "viewItem == sessionItem",
-          "group": "inline@2"
+          "group": "inline@3"
         }
       ],
       "terminal/context": [

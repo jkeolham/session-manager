@@ -4,3 +4,8 @@ test/**
 **/*.map
 .gitignore
 session-manager-*.vsix
+uploads/**
+data/**
+__pycache__/**
+*.log
+.superpowers/**

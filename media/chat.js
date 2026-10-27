@@ -367,11 +367,17 @@ function groupConsecutiveTurns(turns) {
     const steps = [];
     let finalContent = null;
     let interimNotes = [];
+    let questionData = null;
+    let questionTurnIndex = null;
     let startTime = null;
     let endTime = null;
 
     for (let i = 0; i < assistantTurns.length; i++) {
       const at = assistantTurns[i];
+      if (at.questionData) {
+        questionData = at.questionData;
+        questionTurnIndex = at.index;
+      }
       const ts = at.timestamp || at.createdAt;
       if (ts) {
         const d = new Date(ts);
@@ -463,12 +469,73 @@ function groupConsecutiveTurns(turns) {
           content: finalContent
         });
       }
+
+      if (questionData) {
+        assistantResult.items.push({
+          type: 'question',
+          questionData: questionData,
+          turnIndex: questionTurnIndex
+        });
+      }
     }
 
     result.push(assistantResult);
   }
 
   return result;
+}
+
+function renderQuestionCardHtml(qData, turnIndex) {
+  if (!qData || !Array.isArray(qData.questions) || qData.questions.length === 0) return '';
+  const isPending = !!qData.isPending;
+
+  return qData.questions.map((q, qIdx) => {
+    const isMulti = !!q.is_multi_select;
+    const inputType = isMulti ? 'checkbox' : 'radio';
+    const inputName = `ide_q_${turnIndex || 'latest'}_${qIdx}`;
+
+    const optionsHtml = (q.options || []).map((opt, optIdx) => {
+      const optText = typeof opt === 'object' && opt !== null ? (opt.text || '') : String(opt);
+      const optId = typeof opt === 'object' && opt !== null ? String(opt.id || optIdx + 1) : String(optIdx + 1);
+      const isRec = optText.includes('(Recommended)');
+      const cleanOpt = optText.replace(/^\(Recommended\)\s*/i, '').trim();
+      const isChecked = isPending && (isRec || optIdx === 0);
+
+      return `
+        <label class="question-option-item ${isRec ? 'recommended' : ''}">
+          <input type="${inputType}" name="${inputName}" value="${escapeHtml(optText)}" data-opt-id="${escapeHtml(optId)}" ${isChecked ? 'checked' : ''} ${!isPending ? 'disabled' : ''}>
+          <div class="option-content">
+            <span class="option-num">${optIdx + 1}</span>
+            <div class="option-text-wrap">
+              ${isRec ? '<span class="question-rec-badge">Recommended</span>' : ''}
+              <span class="option-text">${escapeHtml(cleanOpt)}</span>
+            </div>
+          </div>
+        </label>`;
+    }).join('');
+
+    return `
+      <div class="question-card ${isPending ? 'pending' : 'answered'}" data-turn-index="${turnIndex || ''}" data-question-text="${escapeHtml(q.question)}" data-multi="${isMulti ? 'true' : 'false'}">
+        <div class="question-card-header">
+          <div class="question-header-left">
+            <span class="question-badge-icon">💬</span>
+            <span class="question-title">${escapeHtml(q.question)}</span>
+          </div>
+          ${isPending ? '<span class="question-status-badge">선택 필요</span>' : '<span class="question-status-badge done">완료</span>'}
+        </div>
+        <div class="question-options-list">
+          ${optionsHtml}
+        </div>
+        ${isPending ? `
+          <div class="question-card-footer">
+            <button type="button" class="question-btn-skip">Skip</button>
+            <button type="button" class="question-btn-submit">
+              <span>Submit</span>
+            </button>
+          </div>
+        ` : ''}
+      </div>`;
+  }).join('');
 }
 
 function renderTurn(turn) {
@@ -525,6 +592,8 @@ function renderTurn(turn) {
       inner += `<div class="assistant-interim-text">${escapeHtml(item.content)}</div>`;
     } else if (item.type === 'content') {
       inner += `<div class="markdown-body">${renderMarkdown(item.content)}</div>`;
+    } else if (item.type === 'question') {
+      inner += renderQuestionCardHtml(item.questionData, item.turnIndex);
     } else {
       inner += renderSubStepHtml(item);
     }
@@ -696,6 +765,59 @@ if (isBrowser) {
           setTimeout(() => { copyBtn.textContent = original; }, 1500);
         }
       }
+      return;
+    }
+
+    const submitBtn = e.target.closest('.question-btn-submit');
+    if (submitBtn) {
+      const card = submitBtn.closest('.question-card');
+      if (!card) return;
+      const checkedInputs = Array.from(card.querySelectorAll('input:checked'));
+      const selectedOptionIds = checkedInputs.map(input => input.getAttribute('data-opt-id')).filter(Boolean);
+      const qText = card.getAttribute('data-question-text') || '';
+      const turnIndex = Number(card.getAttribute('data-turn-index')) || null;
+
+      if (window.vscode) {
+        window.vscode.postMessage({
+          command: 'respondQuestion',
+          stepIndex: turnIndex,
+          responses: [{
+            question: qText,
+            selectedOptionIds: selectedOptionIds,
+            writeInResponse: '',
+            skipped: false
+          }],
+          cancelled: false
+        });
+      }
+      submitBtn.disabled = true;
+      submitBtn.innerText = '전송 중...';
+      return;
+    }
+
+    const skipBtn = e.target.closest('.question-btn-skip');
+    if (skipBtn) {
+      const card = skipBtn.closest('.question-card');
+      if (!card) return;
+      const qText = card.getAttribute('data-question-text') || '';
+      const turnIndex = Number(card.getAttribute('data-turn-index')) || null;
+
+      if (window.vscode) {
+        window.vscode.postMessage({
+          command: 'respondQuestion',
+          stepIndex: turnIndex,
+          responses: [{
+            question: qText,
+            selectedOptionIds: [],
+            writeInResponse: '',
+            skipped: true
+          }],
+          cancelled: false
+        });
+      }
+      skipBtn.disabled = true;
+      skipBtn.innerText = '건너뛰는 중...';
+      return;
     }
   });
 
