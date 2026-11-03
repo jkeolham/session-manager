@@ -735,6 +735,11 @@ export function createServer(options = {}) {
             const cancelled = !!data.cancelled;
 
             const result = await daemonBridge.respondToInteraction(cid, responses, stepIndex, cancelled);
+            if (result && result.error) {
+              const errMsg = typeof result.error === 'object' ? JSON.stringify(result.error) : String(result.error);
+              sendError(res, 500, errMsg);
+              return;
+            }
             sendJson(res, 200, { ok: true, cid, result });
           } catch (err) {
             console.error('Respond question error:', err);

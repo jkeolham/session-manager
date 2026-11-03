@@ -121,20 +121,42 @@ def respond_interaction(cid, responses=None, step_index=None, cancelled=False):
 
     trajectory_id = summary.get("trajectoryId")
     waiting_steps = summary.get("waitingSteps", [])
-
-    target_step = None
-    if waiting_steps:
-        target_step = waiting_steps[0]
-        if step_index is None:
-            step_index = target_step.get("stepIndex")
-
-    if step_index is None:
+    if not waiting_steps:
         return {"error": "No waiting interaction found for conversation"}
 
+    target_step = None
+
+    # 1. Match by step_index directly if it exists in waiting_steps
+    if step_index is not None:
+        for ws in waiting_steps:
+            if ws.get("stepIndex") == step_index:
+                target_step = ws
+                break
+
+    # 2. Match by question text if client sent question text
+    if not target_step and responses and isinstance(responses, list) and responses[0].get("question"):
+        target_q = (responses[0].get("question") or "").strip()
+        for ws in waiting_steps:
+            ws_qs = ws.get("step", {}).get("requestedInteraction", {}).get("askQuestion", {}).get("questions", [])
+            for q in ws_qs:
+                if q.get("question", "").strip() == target_q:
+                    target_step = ws
+                    break
+            if target_step:
+                break
+
+    # 3. Fallback: select the first waiting step
+    if not target_step:
+        target_step = waiting_steps[0]
+
+    # Always use the actual waiting stepIndex registered in LS
+    actual_step_index = target_step.get("stepIndex")
+    if actual_step_index is None:
+        return {"error": "Target waiting step has no stepIndex"}
+
     spec_questions = []
-    if target_step:
-        req_int = target_step.get("step", {}).get("requestedInteraction", {})
-        spec_questions = req_int.get("askQuestion", {}).get("questions", [])
+    req_int = target_step.get("step", {}).get("requestedInteraction", {})
+    spec_questions = req_int.get("askQuestion", {}).get("questions", [])
 
     formatted_responses = []
     if responses and isinstance(responses, list):
@@ -163,7 +185,7 @@ def respond_interaction(cid, responses=None, step_index=None, cancelled=False):
     body = {
         "cascadeId": cid,
         "interaction": {
-            "stepIndex": step_index,
+            "stepIndex": actual_step_index,
             "askQuestion": {
                 "responses": formatted_responses,
                 "cancelled": bool(cancelled)
