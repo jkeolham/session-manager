@@ -879,29 +879,12 @@
     headerBadge.innerText = (session.type || 'active').toUpperCase();
     headerBadge.className = `badge ${session.type || ''}`;
 
-    // Update Google Web Remote Link with current session conversation URL
+    // Ensure Google Web Link always connects directly to https://antigravity.google.com/
     const btnGoogleWeb = document.getElementById('btn-google-web');
     if (btnGoogleWeb) {
-      const targetCid = session.cid || (session.name && session.name.startsWith('rc_') ? session.name.slice(3) : null);
-      if (targetCid) {
-        // 즉시 현재 세션 대화 주소 바인딩 (인증 지원 공식 클라우드 웹 콘솔)
-        const initialUrl = `https://antigravity.google.com/c/${targetCid}`;
-        btnGoogleWeb.href = initialUrl;
-        btnGoogleWeb.title = `Google Web 대시보드 열기 (${targetCid})`;
-        btnGoogleWeb.style.display = 'inline-flex';
-
-        fetch(`/api/remote-url?cid=${encodeURIComponent(targetCid)}`)
-          .then(r => r.json())
-          .then(d => {
-            if (d && d.url) {
-              btnGoogleWeb.href = d.url;
-              if (d.cid) btnGoogleWeb.title = `Google Web 대시보드 열기 (${d.cid})`;
-            }
-          })
-          .catch(() => {});
-      } else {
-        btnGoogleWeb.style.display = 'none';
-      }
+      btnGoogleWeb.href = 'https://antigravity.google.com/';
+      btnGoogleWeb.title = 'antigravity.google.com 열기';
+      btnGoogleWeb.style.display = 'inline-flex';
     }
 
     // Show Chat, Hide Empty State
@@ -1809,14 +1792,7 @@
     });
 
     activeEventSource.addEventListener('relay-url', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        const btnGoogleWeb = document.getElementById('btn-google-web');
-        if (btnGoogleWeb && data && data.url) {
-          btnGoogleWeb.href = data.url;
-          btnGoogleWeb.style.display = 'inline-flex';
-        }
-      } catch (err) {}
+      // Intentionally keep fixed direct link to https://antigravity.google.com/
     });
 
     activeEventSource.addEventListener('ping', () => {
@@ -2365,13 +2341,7 @@
   const btnGoogleWebEl = document.getElementById('btn-google-web');
   if (btnGoogleWebEl) {
     btnGoogleWebEl.addEventListener('click', (e) => {
-      const cid = currentSession ? (currentSession.cid || (currentSession.name && currentSession.name.startsWith('rc_') ? currentSession.name.slice(3) : '')) : '';
-      if (cid) {
-        const fullUrl = `https://antigravity.google.com/c/${cid}`;
-        btnGoogleWebEl.href = fullUrl;
-        window.open(fullUrl, '_blank', 'noopener,noreferrer');
-        e.preventDefault();
-      }
+      btnGoogleWebEl.href = 'https://antigravity.google.com/';
     });
   }
 
