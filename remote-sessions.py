@@ -106,6 +106,12 @@ def get_sessions():
         dt = datetime.datetime.fromtimestamp(mtime).strftime("%m-%d %H:%M")
         time_ago = format_time_ago(mtime)
         is_running = t_info.get("isRunning", False)
+        status = t_info.get("status", "CASCADE_RUN_STATUS_IDLE")
+        # If DB marks as running but trajectory file has not been modified for > 120s, it is no longer actively running
+        if (now - mtime) > 120:
+            is_running = False
+            if status == "CASCADE_RUN_STATUS_RUNNING":
+                status = "CASCADE_RUN_STATUS_IDLE"
         # Recent if modified within 12 hours or today
         is_recent = (now - mtime) < 43200
 
@@ -117,7 +123,7 @@ def get_sessions():
             "timeAgo": time_ago,
             "isRunning": is_running,
             "isRecent": is_recent,
-            "status": t_info.get("status", "CASCADE_RUN_STATUS_IDLE"),
+            "status": status,
             "size_kb": size_kb,
             "steps": t_info.get("steps", 0)
         })

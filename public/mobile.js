@@ -1931,8 +1931,13 @@
       return false;
     }
 
-    if (currentSession && (currentSession.isRunning || currentSession.status === 'CASCADE_RUN_STATUS_RUNNING')) return true;
-    if (lastMsg && lastMsg.__turnData && !lastMsg.__turnData.content) return true;
+    // 마지막 요소가 사용자 턴이고 아직 어시스턴트 턴/응답이 도착하지 않은 대기 상태라면 busy
+    const lastChild = chatHistory ? chatHistory.lastElementChild : null;
+    if (lastChild && lastChild.classList.contains('user')) {
+      return true;
+    }
+
+    // 그 외 어시스턴트 응답이 완료된 상태(또는 대화 없음)는 한가한(IDLE) 상태임
     return false;
   }
 
@@ -2181,9 +2186,10 @@
       return;
     }
 
-    // 만약 에이전트가 생각 중이거나 작업 중이면 대기열(Queue)에 등록
-    if (isSessionBusy()) {
-      const queue = getActiveQueue();
+    const queue = getActiveQueue();
+
+    // 대기열에 이미 이전 대기 메시지가 있거나, 현재 에이전트가 처리 중(isSessionBusy)인 경우에만 큐에 추가
+    if ((queue && queue.length > 0) || isSessionBusy()) {
       queue.push({
         id: 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         text: text,
@@ -2740,12 +2746,17 @@
     syncActiveSession(false);
   });
 
-  // Safety poll: While waiting for agent response or thinking, poll every 3.5s to ensure no dropped events
+  // Safety poll: While waiting for agent response or thinking, poll every 3.5s to ensure no dropped events and auto-process queue
   setInterval(() => {
     if (document.visibilityState === 'visible' && currentSession) {
-      const isAgentThinking = !!chatHistory.querySelector('.typing-msg');
+      const isAgentThinking = !!(chatHistory && chatHistory.querySelector('.typing-msg'));
       if (isAgentThinking || isSending) {
         syncActiveSession(false);
+      } else {
+        const queue = getActiveQueue();
+        if (queue && queue.length > 0 && !isSessionBusy()) {
+          checkAndProcessQueue();
+        }
       }
     }
   }, 3500);
