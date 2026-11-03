@@ -13,6 +13,7 @@ const btnSend = isBrowser ? document.getElementById('btn-send') : null;
 const btnClear = isBrowser ? document.getElementById('btn-clear') : null;
 const btnSync = isBrowser ? document.getElementById('btn-sync') : null;
 const btnCopy = isBrowser ? document.getElementById('btn-copy') : null;
+const btnCopyCid = isBrowser ? document.getElementById('btn-copy-cid') : null;
 
 const tabChat = isBrowser ? document.getElementById('tab-chat') : null;
 const tabTerm = isBrowser ? document.getElementById('tab-term') : null;
@@ -20,6 +21,76 @@ const viewChat = isBrowser ? document.getElementById('view-chat') : null;
 const viewTerm = isBrowser ? document.getElementById('view-term') : null;
 
 let currentSession = null;
+
+// --- LaTeX / Math Symbol Map for Robust Fallback & Direct Replacements ---
+  const LATEX_SYMBOLS = {
+    '\\rightarrow': '→', '\\to': '→',
+    '\\leftarrow': '←', '\\gets': '←',
+    '\\Rightarrow': '⇒', '\\Leftarrow': '⇐',
+    '\\leftrightarrow': '↔', '\\Leftrightarrow': '⇔',
+    '\\uparrow': '↑', '\\downarrow': '↓',
+    '\\nearrow': '↗', '\\searrow': '↘', '\\swarrow': '↙', '\\nwarrow': '↖',
+    '\\pm': '±', '\\mp': '∓',
+    '\\times': '×', '\\div': '÷', '\\cdot': '·', '\\bullet': '•',
+    '\\neq': '≠', '\\ne': '≠',
+    '\\le': '≤', '\\leq': '≤',
+    '\\ge': '≥', '\\geq': '≥',
+    '\\approx': '≈', '\\sim': '∼', '\\equiv': '≡',
+    '\\ll': '≪', '\\gg': '≫',
+    '\\in': '∈', '\\notin': '∉',
+    '\\subset': '⊂', '\\subseteq': '⊆',
+    '\\supset': '⊃', '\\supseteq': '⊇',
+    '\\cup': '∪', '\\cap': '∩', '\\emptyset': '∅',
+    '\\forall': '∀', '\\exists': '∃', '\\nexists': '∄',
+    '\\neg': '¬', '\\land': '∧', '\\lor': '∨',
+    '\\infty': '∞', '\\sum': '∑', '\\prod': '∏', '\\int': '∫',
+    '\\partial': '∂', '\\nabla': '∇',
+    '\\degree': '°', '\\circ': '°', '\\ast': '∗', '\\star': '⋆',
+    '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ',
+    '\\epsilon': 'ε', '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ',
+    '\\iota': 'ι', '\\kappa': 'κ', '\\lambda': 'λ', '\\mu': 'μ',
+    '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π', '\\rho': 'ρ',
+    '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
+    '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
+    '\\Gamma': 'Γ', '\\Delta': 'Δ', '\\Theta': 'Θ', '\\Lambda': 'Λ',
+    '\\Xi': 'Ξ', '\\Pi': 'Π', '\\Sigma': 'Σ', '\\Phi': 'Φ',
+    '\\Psi': 'Ψ', '\\Omega': 'Ω',
+    '\\dots': '…', '\\ldots': '…', '\\cdots': '⋯'
+  };
+
+  function replaceLatexSymbols(str) {
+    if (!str) return '';
+    let res = str;
+    for (const [cmd, sym] of Object.entries(LATEX_SYMBOLS)) {
+      const esc = cmd.replace(/\\/g, '\\\\');
+      const reg = new RegExp(esc + '(?![a-zA-Z])', 'g');
+      res = res.replace(reg, sym);
+    }
+    return res;
+  }
+
+  function renderMathExpression(expr, isDisplay = false) {
+    const trimmed = (expr || '').trim();
+    if (!trimmed) return '';
+
+    // 1. KaTeX 사용 가능 시 완전한 KaTeX 렌더링
+    if (typeof katex !== 'undefined' && typeof katex.renderToString === 'function') {
+      try {
+        return katex.renderToString(trimmed, {
+          displayMode: isDisplay,
+          throwOnError: false
+        });
+      } catch (err) {
+        console.warn('KaTeX render error:', err);
+      }
+    }
+
+    // 2. Fallback: LaTeX 심볼 변환 + 인라인/블록 태그
+    const replaced = replaceLatexSymbols(escapeHtml(trimmed));
+    return isDisplay
+      ? `<div class="math-block">${replaced}</div>`
+      : `<span class="inline-math">${replaced}</span>`;
+  }
 
 function escapeHtml(text) {
   if (!text) return '';
@@ -149,6 +220,24 @@ function renderMarkdown(rawText) {
     return `\n\n${id}\n\n`;
   });
 
+  // 1-1. Extract Math expressions ($$...$$ and $...$)
+  const mathBlocks = [];
+  // Block math: $$ ... $$
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (m, expr) => {
+    const id = `__MATH_BLOCK_${mathBlocks.length}__`;
+    mathBlocks.push(`<div class="math-block">${renderMathExpression(expr, true)}</div>`);
+    return `\n\n${id}\n\n`;
+  });
+  // Inline math: $ ... $ (exclude bare currency amounts like $10 or $50.00)
+  text = text.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)(?<!\$)\$(?!\$)/g, (m, expr) => {
+    const trimmed = expr.trim();
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) return m;
+    const id = `__MATH_BLOCK_${mathBlocks.length}__`;
+    mathBlocks.push(renderMathExpression(trimmed, false));
+    return id;
+  });
+  text = replaceLatexSymbols(text);
+
   // 2. Extract GitHub Alerts (> [!TIP])
   const alertBlocks = [];
   text = parseMarkdownAlerts(text, alertBlocks);
@@ -233,6 +322,11 @@ function renderMarkdown(rawText) {
         <pre><code class="language-${lang}">${code}</code></pre>
       </div>`;
     text = text.replace(`__CODE_BLOCK_${i}__`, blockHtml);
+  }
+
+  // 16. Restore Math Blocks
+  for (let i = 0; i < mathBlocks.length; i++) {
+    text = text.replace(new RegExp(`__MATH_BLOCK_${i}__`, 'g'), () => mathBlocks[i]);
   }
 
   return text;
@@ -725,6 +819,18 @@ if (btnSync) {
   };
 }
 
+if (btnCopyCid) {
+  btnCopyCid.onclick = () => {
+    const cid = (currentSession && currentSession.cid) ? currentSession.cid : '';
+    if (cid) {
+      vscode.postMessage({ command: 'copySessionId', cid: cid });
+      const original = btnCopyCid.textContent;
+      btnCopyCid.textContent = '✓';
+      setTimeout(() => { btnCopyCid.textContent = original; }, 1500);
+    }
+  };
+}
+
 if (btnCopy) {
   btnCopy.onclick = () => {
     let fullText = '';
@@ -922,6 +1028,8 @@ if (typeof module !== 'undefined') {
     formatDuration,
     formatToolStep,
     renderSubStepHtml,
-    groupConsecutiveTurns
+    groupConsecutiveTurns,
+    renderMathExpression,
+    replaceLatexSymbols
   };
 }

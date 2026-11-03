@@ -26,10 +26,19 @@ function resolveTranscriptPath(cid, sessionName) {
     path.join(home, '.gemini/antigravity-ide/brain')
   ];
 
+  function getBestTranscript(dir) {
+    // Prefer transcript_full.jsonl to prevent content truncation on long turns/tables
+    const full = path.join(dir, '.system_generated/logs/transcript_full.jsonl');
+    if (fs.existsSync(full)) return full;
+    const compact = path.join(dir, '.system_generated/logs/transcript.jsonl');
+    if (fs.existsSync(compact)) return compact;
+    return null;
+  }
+
   if (cid) {
     for (const bDir of brainDirs) {
-      const p = path.join(bDir, cid, '.system_generated/logs/transcript.jsonl');
-      if (fs.existsSync(p)) return p;
+      const best = getBestTranscript(path.join(bDir, cid));
+      if (best) return best;
     }
   }
 
@@ -45,8 +54,8 @@ function resolveTranscriptPath(cid, sessionName) {
         const entries = fs.readdirSync(bDir);
         for (const entry of entries) {
           if (entry.startsWith(prefix)) {
-            const p = path.join(bDir, entry, '.system_generated/logs/transcript.jsonl');
-            if (fs.existsSync(p)) return p;
+            const best = getBestTranscript(path.join(bDir, entry));
+            if (best) return best;
           }
         }
       } catch (e) {}
@@ -255,6 +264,12 @@ class SessionChatPanelManager {
         } catch (e) {
           console.error('[SessionChatPanel] Error dispatching respond-question:', e);
         }
+      } else if (data.command === 'copySessionId') {
+        const cid = (record.session && record.session.cid) ? record.session.cid : (data.cid || '');
+        if (cid) {
+          vscode.env.clipboard.writeText(cid);
+          vscode.window.showInformationMessage(`세션 ID가 복사되었습니다: ${cid}`);
+        }
       } else if (data.command === 'termActivate') {
         record.isTermActive = true;
         startTermFastPolling();
@@ -360,6 +375,7 @@ class SessionChatPanelManager {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};">
   <title>${displayTitle}</title>
+  <link rel="stylesheet" href="${webview.asWebviewUri(this.extensionUri)}/media/vendor/katex/katex.min.css">
   <link rel="stylesheet" href="${webview.asWebviewUri(this.extensionUri)}/media/chat.css">
 </head>
 <body>
@@ -377,6 +393,7 @@ class SessionChatPanelManager {
         <button id="tab-native-term" class="tab-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>내장 터미널</button>
       </div>
       <div class="header-actions">
+        <button id="btn-copy-cid" title="세션 ID (CID) 복사">🆔</button>
         <button id="btn-sync" title="최신 대화 동기화">🔄</button>
         <button id="btn-copy" title="전체 대화 복사">📋</button>
       </div>
@@ -443,6 +460,7 @@ class SessionChatPanelManager {
     </div>
   </div>
 
+  <script nonce="${nonce}" src="${webview.asWebviewUri(this.extensionUri)}/media/vendor/katex/katex.min.js"></script>
   <script nonce="${nonce}" src="${webview.asWebviewUri(this.extensionUri)}/media/chat.js"></script>
   <script nonce="${nonce}" src="${webview.asWebviewUri(this.extensionUri)}/media/terminal.js"></script>
 </body>

@@ -1040,6 +1040,25 @@ function activate(context) {
     }
   });
 
+  const copySessionIdCmd = vscode.commands.registerCommand('sessionManager.copySessionId', async (arg) => {
+    let cid = null;
+    if (arg && arg.session && arg.session.cid) {
+      cid = arg.session.cid;
+    } else if (arg && arg.cid) {
+      cid = arg.cid;
+    } else if (arg && arg.session && arg.session.name && arg.session.name.startsWith('rc_')) {
+      cid = arg.session.name.replace(/^rc_/, '');
+    } else if (arg && typeof arg === 'string') {
+      cid = arg.replace(/^rc_/, '');
+    }
+    if (!cid) {
+      vscode.window.showWarningMessage('복사할 세션 ID가 없습니다.');
+      return;
+    }
+    await vscode.env.clipboard.writeText(cid);
+    vscode.window.showInformationMessage(`세션 ID가 클립보드에 복사되었습니다: ${cid}`);
+  });
+
   const killCmd = vscode.commands.registerCommand('sessionManager.kill', async (arg) => {
     let sessionName = arg;
     if (arg && arg.session && arg.session.name) {
@@ -1112,7 +1131,7 @@ function activate(context) {
 
   context.subscriptions.push(
     openPanelCmd, attachCmd, attachRcCmd, reloadRcCmd, deleteRcCmd, refreshCmd, newAgyCmd, killCmd,
-    renameCmd, sendPromptCmd, focusComposerCmd,
+    renameCmd, copySessionIdCmd, sendPromptCmd, focusComposerCmd,
     composerViewReg, terminalChangeSub,
     watcher, customTitlesWatcher, ideTranscriptWatcher, cliTranscriptWatcher,
     { dispose: () => clearInterval(interval) }
