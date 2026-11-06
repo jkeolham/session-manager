@@ -108,6 +108,13 @@
           const href = token.href || '#';
           const title = token.title ? ` title="${escapeHtml(token.title)}"` : '';
           const text = this.parser.parseInline(token.tokens);
+
+          // Local file link detection (file:// scheme or local filesystem paths)
+          const isFile = href.startsWith('file://') || href.startsWith('/home/') || href.startsWith('/tmp/');
+          if (isFile) {
+            return `<a class="markdown-link file-preview-link" href="#" data-file-path="${escapeHtml(href)}"${title}><span class="file-icon">📄</span> ${text}</a>`;
+          }
+
           return `<a class="markdown-link" href="${escapeHtml(href)}"${title} target="_blank" rel="noopener">${text}</a>`;
         }
       }
@@ -343,7 +350,7 @@
             'mtext', 'mspace', 'munder', 'mover', 'munderover',
             'mpadded', 'mphantom', 'menclose'
           ],
-          ADD_ATTR: ['target', 'rel', 'display', 'xmlns', 'encoding']
+          ADD_ATTR: ['target', 'rel', 'display', 'xmlns', 'encoding', 'data-file-path']
         });
       } catch (err) {
         console.warn('DOMPurify error, returning dirtyHtml:', err);
@@ -2857,6 +2864,18 @@
 
   // --- Copy & Review Action Handlers ---
   chatHistory.addEventListener('click', async (e) => {
+    // 0. Local file preview & download link
+    const fileLink = e.target.closest('.file-preview-link') || (e.target.closest('a') && ((e.target.closest('a').getAttribute('href') || '').startsWith('file://') || (e.target.closest('a').getAttribute('data-file-path') || '')) ? e.target.closest('a') : null);
+    if (fileLink) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rawPath = fileLink.getAttribute('data-file-path') || fileLink.getAttribute('href');
+      if (rawPath && rawPath !== '#') {
+        openFileViewer(rawPath);
+      }
+      return;
+    }
+
     // 1. Copy button
     const copyBtn = e.target.closest('.turn-copy-btn');
     if (copyBtn) {
@@ -3170,6 +3189,141 @@
 
   if (btnCloseReview) btnCloseReview.addEventListener('click', closeReviewModal);
   if (reviewBackdrop) reviewBackdrop.addEventListener('click', closeReviewModal);
+
+  // --- Local File Viewer & Downloader Modal ---
+  const fileViewerModal = document.getElementById('file-viewer-modal');
+  const fileViewerBackdrop = document.getElementById('file-viewer-backdrop');
+  const fileViewerTitle = document.getElementById('file-viewer-title');
+  const fileViewerSubtitle = document.getElementById('file-viewer-subtitle');
+  const fileViewerBody = document.getElementById('file-viewer-body');
+  const btnFileDownload = document.getElementById('btn-file-download');
+  const btnCloseFileViewer = document.getElementById('btn-close-file-viewer');
+
+  function openFileViewer(rawFilePath) {
+    if (!fileViewerModal || !rawFilePath) return;
+
+    let cleanPath = rawFilePath.trim();
+    if (cleanPath.startsWith('file://')) {
+      cleanPath = cleanPath.slice(7);
+    }
+    try {
+      cleanPath = decodeURIComponent(cleanPath);
+    } catch (e) {}
+
+    const fileName = cleanPath.split('/').pop() || '문서';
+
+    fileViewerModal.classList.add('open');
+    if (fileViewerBackdrop) fileViewerBackdrop.classList.add('open');
+
+    if (fileViewerTitle) fileViewerTitle.innerText = fileName;
+    if (fileViewerSubtitle) fileViewerSubtitle.innerText = cleanPath;
+    if (btnFileDownload) {
+      btnFileDownload.href = `/api/file?path=${encodeURIComponent(cleanPath)}&download=1`;
+      btnFileDownload.setAttribute('download', fileName);
+    }
+
+    if (fileViewerBody) {
+      fileViewerBody.innerHTML = '<div class="loading-spinner">문서를 불러오는 중...</div>';
+    }
+
+    fetch(`/api/file?path=${encodeURIComponent(cleanPath)}`)
+      .then(r => {
+        if (!r.ok) {
+          return r.json().then(errData => {
+            throw new Error(errData.error || `HTTP error ${r.status}`);
+          });
+        }
+        return r.json();
+      })
+      .then(data => {
+        if (!data || !data.ok) {
+          throw new Error(data?.error || '문서 조회에 실패했습니다.');
+        }
+
+        if (fileViewerTitle) fileViewerTitle.innerText = data.name || fileName;
+        if (fileViewerSubtitle) {
+          const sizeKb = (data.size / 1024).toFixed(1);
+          fileViewerSubtitle.innerText = `${data.path || cleanPath} (${sizeKb} KB)`;
+        }
+
+        if (data.isImage && data.imageUrl) {
+          fileViewerBody.innerHTML = `
+            <div class="file-image-preview">
+              <img src="${escapeHtml(data.imageUrl)}" alt="${escapeHtml(data.name || 'image')}" />
+            </div>
+          `;
+          return;
+        }
+
+        if (data.isBinary) {
+          fileViewerBody.innerHTML = `
+            <div class="empty-state" style="padding: 32px 0;">
+              <div style="font-size: 36px; margin-bottom: 8px;">📦</div>
+              <div style="font-weight: 600; color: #f0f6fc; margin-bottom: 6px;">바이너리 파일입니다</div>
+              <div style="color: #8b949e; font-size: 13px; margin-bottom: 16px;">
+                ${escapeHtml(data.message || '상단의 다운로드 버튼을 눌러 스마트폰에 직접 저장하세요.')}
+              </div>
+              <a href="/api/file?path=${encodeURIComponent(cleanPath)}&download=1" download="${escapeHtml(data.name || fileName)}" class="file-action-btn file-download-btn" style="display: inline-flex; margin: 0 auto;">
+                ⬇️ 다운로드 (${(data.size / 1024).toFixed(1)} KB)
+              </a>
+            </div>
+          `;
+          return;
+        }
+
+        if (data.isTooLarge) {
+          fileViewerBody.innerHTML = `
+            <div class="empty-state" style="padding: 32px 0;">
+              <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
+              <div style="font-weight: 600; color: #f0f6fc; margin-bottom: 6px;">파일 크기가 큽니다</div>
+              <div style="color: #8b949e; font-size: 13px; margin-bottom: 16px;">
+                ${escapeHtml(data.message || '다운로드 버튼을 통해 전체 파일을 다운로드하세요.')}
+              </div>
+              <a href="/api/file?path=${encodeURIComponent(cleanPath)}&download=1" download="${escapeHtml(data.name || fileName)}" class="file-action-btn file-download-btn" style="display: inline-flex; margin: 0 auto;">
+                ⬇️ 다운로드 (${(data.size / (1024 * 1024)).toFixed(1)} MB)
+              </a>
+            </div>
+          `;
+          return;
+        }
+
+        // 마크다운 vs 일반 코드/텍스트 렌더링
+        const ext = (data.ext || '').toLowerCase();
+        if (ext === '.md' || ext === '.markdown') {
+          let rendered = '';
+          if (typeof marked !== 'undefined' && marked.parse) {
+            rendered = marked.parse(data.content || '');
+            if (typeof sanitizeHtml === 'function') {
+              rendered = sanitizeHtml(rendered);
+            }
+          } else {
+            rendered = `<pre><code>${escapeHtml(data.content || '')}</code></pre>`;
+          }
+          fileViewerBody.innerHTML = `<div class="file-markdown-view">${rendered}</div>`;
+        } else {
+          fileViewerBody.innerHTML = `<pre class="file-code-block"><code>${escapeHtml(data.content || '')}</code></pre>`;
+        }
+      })
+      .catch(err => {
+        if (fileViewerBody) {
+          fileViewerBody.innerHTML = `
+            <div class="empty-state" style="padding: 24px 0;">
+              <div style="font-size: 32px; margin-bottom: 8px;">❌</div>
+              <div style="font-weight: 600; color: #f85149; margin-bottom: 4px;">파일 열람 실패</div>
+              <div style="color: #8b949e; font-size: 12px;">${escapeHtml(err.message)}</div>
+            </div>
+          `;
+        }
+      });
+  }
+
+  function closeFileViewer() {
+    if (fileViewerModal) fileViewerModal.classList.remove('open');
+    if (fileViewerBackdrop) fileViewerBackdrop.classList.remove('open');
+  }
+
+  if (btnCloseFileViewer) btnCloseFileViewer.addEventListener('click', closeFileViewer);
+  if (fileViewerBackdrop) fileViewerBackdrop.addEventListener('click', closeFileViewer);
 
   // --- Pull-to-Refresh & Down-scroll at End Refresh ---
   const pullRefreshIndicator = document.getElementById('pull-refresh-indicator');

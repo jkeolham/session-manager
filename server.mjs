@@ -21,6 +21,8 @@ const ALLOWED_UPLOAD_EXTS = new Set([
   '.py', '.js', '.ts', '.mjs', '.sh', '.csv'
 ]);
 
+const HOME_DIR = process.env.HOME || '/home/ttolmany';
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -36,7 +38,12 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.pdf': 'application/pdf',
   '.ico': 'image/x-icon',
-  '.txt': 'text/plain; charset=utf-8'
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.markdown': 'text/markdown; charset=utf-8',
+  '.zip': 'application/zip',
+  '.tar': 'application/x-tar',
+  '.gz': 'application/gzip'
 };
 
 export function resolveTranscriptPath(cid, sessionName) {
@@ -326,6 +333,226 @@ export function createServer(options = {}) {
             summary: 'Diff 조회 불가',
             diff: ''
           });
+        }
+        return;
+      }
+
+      // 1.02 GET /api/file — view or download local files safely
+      if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/file') {
+        const rawPath = urlObj.searchParams.get('path');
+        const isDownload = urlObj.searchParams.get('download') === '1' || urlObj.searchParams.get('download') === 'true';
+        const isRaw = urlObj.searchParams.get('raw') === '1' || urlObj.searchParams.get('raw') === 'true';
+
+        if (!rawPath || typeof rawPath !== 'string') {
+          sendError(res, 400, 'Path query parameter is required');
+          return;
+        }
+
+        // 1. URI 디코딩 및 file:// 스킴 정규화
+        let targetPath = rawPath.trim();
+        if (targetPath.startsWith('file://')) {
+          targetPath = targetPath.slice(7);
+        }
+        try {
+          targetPath = decodeURIComponent(targetPath);
+        } catch (e) {
+          // fallback to original targetPath
+        }
+
+        // 2. 경로 정규화 (Path traversal 방어)
+        const resolvedPath = path.resolve(targetPath);
+
+        // 3. 허용 기준 디렉터리 검증 (/home/ttolmany 하위)
+        const allowedBase = path.resolve(HOME_DIR);
+        if (!resolvedPath.startsWith(allowedBase + path.sep) && resolvedPath !== allowedBase) {
+          sendError(res, 403, 'Forbidden: Access outside user home directory is denied');
+          return;
+        }
+
+        // 4. 민감 경로 및 보안 파일 차단
+        const sensitivePatterns = [
+          /\/\.ssh(\/|$)/i,
+          /\/\.gnupg(\/|$)/i,
+          /\/\.pki(\/|$)/i,
+          /\/\.aws(\/|$)/i,
+          /\/\.config\/gcloud(\/|$)/i,
+          /\/\.env(\.|$)/i,
+          /\/(id_rsa|id_ed25519|id_ecdsa)(\.|$)/i,
+          /\.pem$/i,
+          /\.key$/i,
+          /\.p12$/i,
+          /\.keystore$/i,
+          /\.bash_history$/i,
+          /\.zsh_history$/i
+        ];
+
+        if (sensitivePatterns.some(pat => pat.test(resolvedPath))) {
+          sendError(res, 403, 'Forbidden: Access to sensitive system or credential file is denied');
+          return;
+        }
+
+        // 5. 파일 존재 여부 및 심볼릭 링크(Symlink) 실제 경로 검증
+        if (!fs.existsSync(resolvedPath)) {
+          sendError(res, 404, 'File not found');
+          return;
+        }
+
+        let realPath;
+        try {
+          realPath = fs.realpathSync(resolvedPath);
+        } catch (e) {
+          sendError(res, 400, 'Unable to resolve file path');
+          return;
+        }
+
+        // symlink traversal 방어
+        if (!realPath.startsWith(allowedBase + path.sep) && realPath !== allowedBase) {
+          sendError(res, 403, 'Forbidden: Symlink target is outside user directory');
+          return;
+        }
+
+        if (sensitivePatterns.some(pat => pat.test(realPath))) {
+          sendError(res, 403, 'Forbidden: Symlink target is sensitive');
+          return;
+        }
+
+        let stat;
+        try {
+          stat = fs.statSync(realPath);
+        } catch (e) {
+          sendError(res, 500, 'Failed to inspect file');
+          return;
+        }
+
+        if (stat.isDirectory()) {
+          sendError(res, 400, 'Requested path is a directory, not a file');
+          return;
+        }
+
+        const fileName = path.basename(realPath);
+        const ext = path.extname(realPath).toLowerCase();
+
+        // 6. 다운로드 모드 (download=1)
+        if (isDownload) {
+          const encodedFileName = encodeURIComponent(fileName).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+          res.writeHead(200, {
+            'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+            'Content-Length': stat.size,
+            'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '_')}"; filename*=UTF-8''${encodedFileName}`,
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          });
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
+          fs.createReadStream(realPath).pipe(res);
+          return;
+        }
+
+        // 7. 원시 스트리밍 모드 (raw=1, 이미지 등 인라인 표시용)
+        if (isRaw) {
+          res.writeHead(200, {
+            'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+            'Content-Length': stat.size,
+            'Content-Disposition': 'inline',
+            'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*'
+          });
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
+          fs.createReadStream(realPath).pipe(res);
+          return;
+        }
+
+        if (req.method === 'HEAD') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end();
+          return;
+        }
+
+        // 8. 뷰어 모드 (JSON 반환)
+        const textExtensions = new Set([
+          '.md', '.markdown', '.txt', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx',
+          '.jsx', '.html', '.htm', '.css', '.scss', '.sass', '.less', '.xml', '.yaml',
+          '.yml', '.csv', '.tsv', '.py', '.sh', '.bash', '.zsh', '.sql', '.conf',
+          '.ini', '.toml', '.env.example', '.log', '.diff', '.patch', '.svg'
+        ]);
+
+        const imageExtensions = new Set([
+          '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp'
+        ]);
+
+        const isText = textExtensions.has(ext);
+        const isImage = imageExtensions.has(ext);
+
+        if (isImage) {
+          sendJson(res, 200, {
+            ok: true,
+            name: fileName,
+            path: realPath,
+            ext,
+            size: stat.size,
+            modified: stat.mtime.toISOString(),
+            isImage: true,
+            isBinary: false,
+            imageUrl: `/api/file?path=${encodeURIComponent(realPath)}&raw=1`
+          });
+          return;
+        }
+
+        if (!isText) {
+          sendJson(res, 200, {
+            ok: true,
+            name: fileName,
+            path: realPath,
+            ext,
+            size: stat.size,
+            modified: stat.mtime.toISOString(),
+            isImage: false,
+            isBinary: true,
+            message: '바이너리 파일입니다. 상단의 다운로드 버튼을 눌러 파일을 다운로드하세요.'
+          });
+          return;
+        }
+
+        // 5MB 초과 파일은 OOM 방지를 위해 다운로드 유도
+        if (stat.size > 5 * 1024 * 1024) {
+          sendJson(res, 200, {
+            ok: true,
+            name: fileName,
+            path: realPath,
+            ext,
+            size: stat.size,
+            modified: stat.mtime.toISOString(),
+            isImage: false,
+            isBinary: false,
+            isTooLarge: true,
+            message: `파일 크기(${(stat.size / (1024 * 1024)).toFixed(1)}MB)가 커서 바로 표시할 수 없습니다. 다운로드 버튼을 이용하세요.`
+          });
+          return;
+        }
+
+        try {
+          const content = fs.readFileSync(realPath, 'utf-8');
+          sendJson(res, 200, {
+            ok: true,
+            name: fileName,
+            path: realPath,
+            ext,
+            size: stat.size,
+            modified: stat.mtime.toISOString(),
+            isImage: false,
+            isBinary: false,
+            content
+          });
+        } catch (readErr) {
+          sendError(res, 500, `Failed to read file content: ${readErr.message}`);
         }
         return;
       }

@@ -1,4 +1,6 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert';
 import { createServer } from '../server.mjs';
 
@@ -76,7 +78,58 @@ async function runAuditRegressionTests() {
     assert.ok(servedRes.headers.get('content-security-policy').includes("default-src 'none'"));
     console.log('✅ /uploads/ Security Headers test passed: CSP & nosniff verified');
 
-    console.log('\n🎉 ALL 5 AUDIT SECURITY REGRESSION TESTS PASSED!');
+    // 6. Test /api/file: Missing path parameter should return 400
+    const missingPathRes = await fetch(`http://127.0.0.1:${PORT}/api/file`);
+    assert.strictEqual(missingPathRes.status, 400);
+    console.log('✅ /api/file Validation test passed: Missing path returned 400');
+
+    // 7. Test /api/file: Path Traversal outside home directory should return 403
+    const traversalRes1 = await fetch(`http://127.0.0.1:${PORT}/api/file?path=/etc/passwd`);
+    assert.strictEqual(traversalRes1.status, 403);
+    const traversalRes2 = await fetch(`http://127.0.0.1:${PORT}/api/file?path=../../../../etc/shadow`);
+    assert.strictEqual(traversalRes2.status, 403);
+    console.log('✅ /api/file Path Traversal Defense test passed: External paths returned 403');
+
+    // 8. Test /api/file: Sensitive credential file access should return 403
+    const sensitiveRes = await fetch(`http://127.0.0.1:${PORT}/api/file?path=/home/ttolmany/.ssh/id_rsa`);
+    assert.strictEqual(sensitiveRes.status, 403);
+    console.log('✅ /api/file Sensitive File Defense test passed: .ssh path returned 403');
+
+    // 9. Test /api/file: Non-existent file should return 404
+    const notFoundRes = await fetch(`http://127.0.0.1:${PORT}/api/file?path=/home/ttolmany/test_non_existent_${Date.now()}.md`);
+    assert.strictEqual(notFoundRes.status, 404);
+    console.log('✅ /api/file Not Found test passed: Non-existent file returned 404');
+
+    // 10. Test /api/file: Valid document view (JSON)
+    const testDocPath = path.resolve('./test/temp-test-doc.md');
+    fs.writeFileSync(testDocPath, '# Test Document\n\nHello from file viewer test!\n', 'utf-8');
+    try {
+      const viewRes = await fetch(`http://127.0.0.1:${PORT}/api/file?path=${encodeURIComponent('file://' + testDocPath)}`);
+      assert.strictEqual(viewRes.status, 200);
+      const viewData = await viewRes.json();
+      assert.strictEqual(viewData.ok, true);
+      assert.strictEqual(viewData.name, 'temp-test-doc.md');
+      assert.strictEqual(viewData.ext, '.md');
+      assert.strictEqual(viewData.isBinary, false);
+      assert.ok(viewData.content.includes('# Test Document'));
+      console.log('✅ /api/file Document View test passed: JSON viewer payload verified');
+
+      // 11. Test /api/file: Document download (stream with attachment header)
+      const downloadRes = await fetch(`http://127.0.0.1:${PORT}/api/file?path=${encodeURIComponent(testDocPath)}&download=1`);
+      assert.strictEqual(downloadRes.status, 200);
+      const disp = downloadRes.headers.get('content-disposition');
+      assert.ok(disp && disp.includes('attachment;'), 'Must have attachment content-disposition');
+      assert.ok(disp.includes('temp-test-doc.md'), 'Must have correct filename');
+      const downloadedText = await downloadRes.text();
+      assert.strictEqual(downloadedText, '# Test Document\n\nHello from file viewer test!\n');
+      console.log('✅ /api/file Document Download test passed: Attachment headers & streaming verified');
+    } finally {
+      if (fs.existsSync(testDocPath)) {
+        fs.unlinkSync(testDocPath);
+      }
+    }
+
+    console.log('\n🎉 ALL 11 AUDIT SECURITY REGRESSION TESTS PASSED!');
   } finally {
     server.close();
   }

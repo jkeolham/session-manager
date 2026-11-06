@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/mobile.css?v=20261103_v35">
+  <link rel="stylesheet" href="/mobile.css?v=20261106_v36">
 </head>
 <body>
   <div id="app">
@@ -267,6 +267,28 @@
       </div>
     </div>
 
+    <!-- Local File Viewer / Downloader Modal Sheet -->
+    <div id="file-viewer-backdrop" class="modal-backdrop"></div>
+    <div id="file-viewer-modal" class="file-viewer-modal">
+      <div class="file-viewer-header">
+        <div class="file-viewer-title-area">
+          <div id="file-viewer-title" class="file-viewer-title">문서 열람</div>
+          <div id="file-viewer-subtitle" class="file-viewer-subtitle">경로 로딩 중...</div>
+        </div>
+        <div class="file-viewer-actions">
+          <a id="btn-file-download" href="#" class="file-action-btn file-download-btn" title="스마트폰으로 다운로드" download>
+            ⬇️ 다운로드
+          </a>
+          <button id="btn-close-file-viewer" class="icon-btn close-modal-btn" type="button" aria-label="닫기">
+            ✕
+          </button>
+        </div>
+      </div>
+      <div id="file-viewer-body" class="file-viewer-body markdown-content">
+        <div class="loading-spinner">문서를 불러오는 중...</div>
+      </div>
+    </div>
+
     <!-- Model Picker Bottom Sheet Modal -->
     <div id="model-picker-backdrop" class="modal-backdrop"></div>
     <div id="model-picker-sheet" class="model-picker-sheet">
@@ -358,6 +380,6 @@
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/mobile.js?v=20261104_v45"></script>
+  <script src="/mobile.js?v=20261106_v46"></script>
 </body>
 </html>
