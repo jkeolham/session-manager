@@ -407,6 +407,14 @@
       const total = (allSessions.agy.length + allSessions.claude.length + allSessions.codex.length + allSessions.other.length);
       sessionCountBadge.innerText = total;
 
+      if (currentSession) {
+        const allList = [...allSessions.agy, ...allSessions.claude, ...allSessions.codex, ...allSessions.other];
+        const updated = allList.find(s => (s.cid && s.cid === currentSession.cid) || (s.name && s.name === currentSession.name));
+        if (updated) {
+          currentSession = { ...currentSession, ...updated };
+        }
+      }
+
       renderSessionList();
     } catch (err) {
       console.error('Failed to load sessions:', err);
@@ -1681,6 +1689,15 @@
             if (hasAssistantTurn && typingEl) {
               typingEl.remove();
             }
+
+            // 마지막 턴이 완결된 어시스턴트 턴(본문 내용 존재)이면 실행 플래그 해제
+            const latestTurn = data.turns[data.turns.length - 1];
+            if (latestTurn && latestTurn.role === 'assistant' && latestTurn.content && latestTurn.content.trim()) {
+              if (currentSession) {
+                currentSession.isRunning = false;
+                currentSession.status = 'CASCADE_RUN_STATUS_IDLE';
+              }
+            }
           }
         }
       }
@@ -1926,25 +1943,48 @@
   }
 
   function isSessionBusy() {
-    if (isSending) return true;
-    if (chatHistory && chatHistory.querySelector('.typing-msg')) return true;
-
-    // 만약 질문 선택 카드가 대기 중이면(Pending question) 사용자가 입력해야 하므로 busy가 아님!
+    // 1. 질문 카드가 대기 중이면(Pending question) 사용자가 직접 선택/입력해야 하므로 busy가 아님!
     const pendingCard = chatHistory ? chatHistory.querySelector('.question-card.pending') : null;
     if (pendingCard) return false;
 
-    const lastMsg = chatHistory ? chatHistory.querySelector('.message.assistant:last-child') : null;
-    if (lastMsg && lastMsg.__turnData && lastMsg.__turnData.questionData && lastMsg.__turnData.questionData.isPending) {
+    const lastAssistantEl = chatHistory ? chatHistory.querySelector('.message.assistant:last-of-type') : null;
+    if (lastAssistantEl && lastAssistantEl.__turnData && lastAssistantEl.__turnData.questionData && lastAssistantEl.__turnData.questionData.isPending) {
       return false;
     }
 
-    // 마지막 요소가 사용자 턴이고 아직 어시스턴트 턴/응답이 도착하지 않은 대기 상태라면 busy
+    // 2. 현재 전송 중이거나 타이핑 스피너가 표시 중인 경우 확실히 busy
+    if (isSending) return true;
+    if (chatHistory && chatHistory.querySelector('.typing-msg')) return true;
+
+    // 3. 마지막 대화 요소가 사용자 턴이고 아직 어시스턴트 응답이 도착하지 않은 대기 상태라면 busy
     const lastChild = chatHistory ? chatHistory.lastElementChild : null;
     if (lastChild && lastChild.classList.contains('user')) {
       return true;
     }
 
-    // 그 외 어시스턴트 응답이 완료된 상태(또는 대화 없음)는 한가한(IDLE) 상태임
+    // 4. 세션 레벨 실행 상태 확인: 백엔드에서 에이전트 프로세스가 활성 작업 중인 경우
+    if (currentSession && (currentSession.isRunning || currentSession.status === 'CASCADE_RUN_STATUS_RUNNING')) {
+      return true;
+    }
+
+    // 5. 마지막 어시스턴트 턴이 아직 생성 중(본문 텍스트 부재 또는 도구 실행 중)인 경우
+    if (lastAssistantEl && lastAssistantEl.__turnData) {
+      const t = lastAssistantEl.__turnData;
+      const isGenerating = !t.content || !t.content.trim();
+      if (isGenerating && (t.thinking || (t.toolCalls && t.toolCalls.length > 0))) {
+        return true;
+      }
+      if (t.toolCalls && t.toolCalls.some(tc => tc.status === 'RUNNING' || tc.status === 'IN_PROGRESS')) {
+        return true;
+      }
+    }
+
+    // 6. UI 상에 활성 처리 스피너가 돌고 있는 경우
+    if (chatHistory && chatHistory.querySelector('.user-processing-indicator, .thinking-spinner-mini')) {
+      return true;
+    }
+
+    // 그 외 어시스턴트 최종 응답이 완료된 상태(또는 대화 없음)는 한가한(IDLE) 상태임
     return false;
   }
 
@@ -2233,6 +2273,10 @@
     const cid = currentSession.cid || '';
     const sessionName = currentSession.name || (cid ? `rc_${cid.slice(0, 8)}` : '');
     const isTerminalActive = !!document.getElementById('terminalScreen');
+
+    // Mark current session as running immediately
+    currentSession.isRunning = true;
+    currentSession.status = 'CASCADE_RUN_STATUS_RUNNING';
 
     // Optimistic user turn if in chat turn mode
     if (!isTerminalActive) {
