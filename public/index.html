@@ -3,19 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#121214">
+  <meta name="theme-color" content="#0e0e11">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="세션매니저">
   <meta name="application-name" content="세션매니저">
   <title>N100 Session Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Google+Sans+Text:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.json?v=20261020_v20">
   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg?v=20261020_v20">
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/mobile.css?v=20261106_v36">
+  <link rel="stylesheet" href="/mobile.css?v=20261117_v37">
 </head>
 <body>
   <div id="app">
@@ -32,6 +35,7 @@
         <h1 id="current-session-title">세션을 선택하세요</h1>
         <div id="current-session-meta">
           <span id="current-session-badge" class="badge">Offline</span>
+          <span id="current-session-branch" class="git-badge" style="display:none;">main</span>
           <span id="current-session-subtitle"></span>
         </div>
       </div>
@@ -86,6 +90,12 @@
           <span id="session-count-badge" class="count-badge">0</span>
         </div>
         <div class="drawer-header-actions">
+          <button id="btn-drawer-automations" class="icon-btn" aria-label="자동화 관리" title="N100 자동화 관리 (크론/상시 서비스)">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </button>
           <button id="btn-drawer-new" class="icon-btn" aria-label="새 대화 시작" title="새 대화 시작">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -147,11 +157,50 @@
 
     <!-- Main Chat Container -->
     <main id="chat-container">
-      <div id="empty-state">
-        <div class="empty-icon">💬</div>
-        <h3>선택된 세션이 없습니다</h3>
-        <p>상단 메뉴(☰)를 눌러 대화할 세션을 선택하거나 아래 입력창에서 새 대화를 시작하세요.</p>
-        <button id="btn-open-drawer-action" class="primary-btn">세션 목록 열기</button>
+      <div id="empty-state" class="dashboard-welcome-view">
+        <div class="welcome-header-area">
+          <div class="welcome-badge">Google Antigravity 2.0</div>
+          <h2 class="welcome-greeting">안녕하세요, ttolmany님 👋</h2>
+          <p class="welcome-sub">무엇을 도와드릴까요? 아래 추천 작업을 탭하거나 화면 하단 입력창에서 바로 새 대화를 시작하세요.</p>
+        </div>
+        <div class="quick-prompts-grid">
+          <button type="button" class="quick-prompt-card" data-prompt="코드베이스 전체 점검 및 개선 가능한 항목 리포트해줘">
+            <span class="quick-prompt-icon">🔍</span>
+            <div class="quick-prompt-text">
+              <strong>코드베이스 점검</strong>
+              <span>개선 가능한 항목 분석 및 리포트</span>
+            </div>
+          </button>
+          <button type="button" class="quick-prompt-card" data-prompt="/goal 장기 자율 작업으로 다음 목표를 수행해줘: ">
+            <span class="quick-prompt-icon">🎯</span>
+            <div class="quick-prompt-text">
+              <strong>/goal 자율 작업</strong>
+              <span>장시간 심층 자율 완결 태스크 실행</span>
+            </div>
+          </button>
+          <button type="button" class="quick-prompt-card" data-prompt="현재 시스템 상태 및 실행 중인 백그라운드 태스크 요약해줘">
+            <span class="quick-prompt-icon">⚡</span>
+            <div class="quick-prompt-text">
+              <strong>시스템 모니터링</strong>
+              <span>N100 활성 프로세스 및 리소스 현황</span>
+            </div>
+          </button>
+          <button type="button" class="quick-prompt-card" data-prompt="최근 커밋 변경 내역 감사 및 코드 리뷰해줘">
+            <span class="quick-prompt-icon">🛡️</span>
+            <div class="quick-prompt-text">
+              <strong>코드 감사 &amp; 리뷰</strong>
+              <span>보안, 잠재 결함 및 변경점 점검</span>
+            </div>
+          </button>
+        </div>
+        <button id="btn-open-drawer-action" class="primary-btn welcome-drawer-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+          기존 세션 목록 열기
+        </button>
       </div>
       <div id="chat-history"></div>
     </main>
@@ -179,19 +228,34 @@
       <div id="attachment-preview-bar" class="attachment-preview-bar" style="display: none;"></div>
 
       <div class="composer-box">
-        <!-- Voice Recording Mini Bar (녹음 진행 중일 때 노출) -->
+        <!-- Voice Recording & Live Mode Bar -->
         <div id="voice-recording-bar" class="voice-recording-bar" style="display: none;">
           <div class="voice-rec-left">
-            <svg class="voice-rec-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-            </svg>
-            <span class="voice-rec-text">Recording...</span>
+            <div class="voice-aura-wave">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <span class="voice-rec-text">Listening...</span>
+          </div>
+          <div class="voice-rec-center">
+            <!-- Voice Speed Selector (0.75x to 2.0x) -->
+            <div class="voice-speed-group" id="voice-speed-group" title="음성 재생 속도">
+              <button type="button" class="voice-speed-chip" data-speed="0.75">0.75x</button>
+              <button type="button" class="voice-speed-chip active" data-speed="1.0">1.0x</button>
+              <button type="button" class="voice-speed-chip" data-speed="1.25">1.25x</button>
+              <button type="button" class="voice-speed-chip" data-speed="1.5">1.5x</button>
+              <button type="button" class="voice-speed-chip" data-speed="2.0">2.0x</button>
+            </div>
           </div>
           <div class="voice-rec-right">
+            <button id="btn-toggle-auto-tts" class="voice-auto-tts-btn active" type="button" title="답변 자동 낭독 켜기/끄기">
+              🔊 <span>자동 낭독</span>
+            </button>
             <span id="voice-rec-timer" class="voice-rec-timer">0:00</span>
-            <button id="btn-voice-stop" class="voice-btn-stop" type="button" aria-label="녹음 완료">
-              <span class="voice-stop-square"></span>
+            <button id="btn-voice-stop" class="voice-btn-stop" type="button" aria-label="녹음 및 전송">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
             </button>
             <button id="btn-voice-cancel" class="voice-btn-cancel" type="button" aria-label="녹음 취소">✕</button>
           </div>
@@ -294,22 +358,70 @@
     <div id="model-picker-sheet" class="model-picker-sheet">
       <div class="sheet-drag-handle"></div>
       <div class="model-sheet-header">
-        <span class="model-sheet-title">Model</span>
+        <span class="model-sheet-title">Model &amp; Agent Configuration</span>
       </div>
 
-      <!-- Reasoning Effort Selection (Low / Mid / High) -->
-      <div class="effort-control-bar">
-        <span class="effort-control-title">Reasoning Effort</span>
-        <div class="effort-segmented-control" id="model-effort-group">
-          <button type="button" class="effort-btn" data-effort="low">Low</button>
-          <button type="button" class="effort-btn" data-effort="mid">Mid</button>
-          <button type="button" class="effort-btn active" data-effort="high">High</button>
+      <!-- Segmented Tab Bar: Model vs Agent Mode -->
+      <div class="model-sheet-tabs" id="model-sheet-tabs">
+        <button type="button" class="sheet-tab-btn active" data-tab="models">🤖 Model</button>
+        <button type="button" class="sheet-tab-btn" data-tab="agent-roles">⚡ Agent Mode</button>
+      </div>
+
+      <!-- Tab Content 1: Model & Reasoning -->
+      <div id="tab-content-models" class="tab-pane active">
+        <!-- Reasoning Effort Selection (Low / Mid / High) -->
+        <div class="effort-control-bar">
+          <span class="effort-control-title">Reasoning Effort</span>
+          <div class="effort-segmented-control" id="model-effort-group">
+            <button type="button" class="effort-btn" data-effort="low">Low</button>
+            <button type="button" class="effort-btn" data-effort="mid">Mid</button>
+            <button type="button" class="effort-btn active" data-effort="high">High</button>
+          </div>
+        </div>
+
+        <div id="model-sheet-list" class="model-sheet-list">
+          <!-- Javascript dynamically renders available models -->
         </div>
       </div>
 
-      <div id="model-sheet-list" class="model-sheet-list">
-        <!-- Javascript dynamically renders available models -->
+      <!-- Tab Content 2: Agent Role Mode -->
+      <div id="tab-content-agent-roles" class="tab-pane" style="display: none;">
+        <div class="agent-roles-list" id="agent-roles-list">
+          <div class="agent-role-item active" data-role="full">
+            <div class="agent-role-icon">🛠️</div>
+            <div class="agent-role-info">
+              <span class="agent-role-name">Full Agent (기본 자율)</span>
+              <span class="agent-role-desc">코드 탐색, 도구 실행, 디버깅 및 전체 태스크 자율 수행</span>
+            </div>
+            <span class="agent-role-check">✓</span>
+          </div>
+          <div class="agent-role-item" data-role="architect">
+            <div class="agent-role-icon">📐</div>
+            <div class="agent-role-info">
+              <span class="agent-role-name">Architect (기획 및 설계)</span>
+              <span class="agent-role-desc">신규 기능 기획, 시스템 아키텍처 및 상세 플랜 수립</span>
+            </div>
+            <span class="agent-role-check">✓</span>
+          </div>
+          <div class="agent-role-item" data-role="auditor">
+            <div class="agent-role-icon">🛡️</div>
+            <div class="agent-role-info">
+              <span class="agent-role-name">Auditor (코드 감사 및 리뷰)</span>
+              <span class="agent-role-desc">변경 diff 정밀 검증, 보안 취약점 점검 및 철칙 준수 확인</span>
+            </div>
+            <span class="agent-role-check">✓</span>
+          </div>
+          <div class="agent-role-item" data-role="debugger">
+            <div class="agent-role-icon">🚀</div>
+            <div class="agent-role-info">
+              <span class="agent-role-name">Quick Debugger (신속 디버깅)</span>
+              <span class="agent-role-desc">테스트 실패 및 런타임 오류 원인 분석 및 최소 수정</span>
+            </div>
+            <span class="agent-role-check">✓</span>
+          </div>
+        </div>
       </div>
+
       <div class="model-sheet-divider"></div>
       <div id="btn-view-usage" class="model-sheet-usage-btn">
         <div class="usage-label-wrap">
@@ -348,6 +460,65 @@
       </div>
     </div>
 
+    <!-- N100 Automations Dashboard Bottom Sheet Modal -->
+    <div id="automations-modal-backdrop" class="modal-backdrop"></div>
+    <div id="automations-modal-sheet" class="automations-modal-sheet">
+      <div class="sheet-drag-handle"></div>
+      <div class="automations-sheet-header">
+        <div class="automations-header-title-wrap">
+          <svg class="automations-header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span class="automations-sheet-title">N100 Automations 관리</span>
+        </div>
+        <div class="automations-header-actions">
+          <button id="btn-refresh-automations" class="icon-btn" title="새로고침">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+          <button id="btn-close-automations" class="icon-btn close-modal-btn" type="button" aria-label="닫기">✕</button>
+        </div>
+      </div>
+
+      <!-- 3-Segment Tab Bar: Scheduled / Always on / Paused -->
+      <div class="automations-tabs" id="automations-tabs">
+        <button type="button" class="auto-tab-btn active" data-tab="scheduled">
+          ⏰ Scheduled <span id="auto-count-scheduled" class="auto-tab-badge">0</span>
+        </button>
+        <button type="button" class="auto-tab-btn" data-tab="always-on">
+          🟢 Always on <span id="auto-count-always-on" class="auto-tab-badge">0</span>
+        </button>
+        <button type="button" class="auto-tab-btn" data-tab="paused">
+          ⏸️ Paused <span id="auto-count-paused" class="auto-tab-badge">0</span>
+        </button>
+      </div>
+
+      <!-- Automations Content List -->
+      <div id="automations-sheet-content" class="automations-sheet-content">
+        <div class="loading-spinner">자동화 작업 현황을 조회하는 중...</div>
+      </div>
+    </div>
+
+    <!-- Automation Log Viewer Sheet Modal -->
+    <div id="auto-log-backdrop" class="modal-backdrop"></div>
+    <div id="auto-log-sheet" class="auto-log-sheet">
+      <div class="sheet-drag-handle"></div>
+      <div class="auto-log-header">
+        <div class="auto-log-title-wrap">
+          <span class="auto-log-title" id="auto-log-title">실행 로그</span>
+          <span class="auto-log-subtitle" id="auto-log-subtitle">/path/to/log</span>
+        </div>
+        <button id="btn-close-auto-log" class="icon-btn close-modal-btn" type="button" aria-label="닫기">✕</button>
+      </div>
+      <div id="auto-log-body" class="auto-log-body">
+        <div class="loading-spinner">로그를 불러오는 중...</div>
+      </div>
+    </div>
+
     <!-- Session Item Context / Action Menu -->
     <div id="session-action-menu" class="session-action-menu hidden" role="menu" aria-hidden="true">
       <button type="button" class="session-action-item" data-action="copy-id" role="menuitem">
@@ -380,6 +551,6 @@
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/mobile.js?v=20261106_v47"></script>
+  <script src="/mobile.js?v=20261117_v48"></script>
 </body>
 </html>

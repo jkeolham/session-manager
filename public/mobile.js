@@ -1209,15 +1209,17 @@
       if (hasThinkings) {
         const fullThinking = uniqueThinkings.join('\n\n---\n\n');
         innerHtml += `
-          <div class="claude-tree-item thinking">
-            <div class="claude-item-head">
+          <details class="claude-tree-item thinking" ${forceOpen || isGenerating ? 'open' : ''}>
+            <summary class="claude-item-head">
               <span class="claude-check-icon">💭</span>
               <span class="claude-item-title">사고 과정 (Extended Thinking)</span>
-            </div>
+              ${isGenerating ? '<span class="thinking-pulse-dot"></span>' : ''}
+              <span class="claude-item-arrow">›</span>
+            </summary>
             <div class="claude-item-body thinking-body">
               ${escapeHtml(fullThinking)}
             </div>
-          </div>
+          </details>
         `;
       }
 
@@ -1309,6 +1311,12 @@
               </svg>
               <span>Review</span>
             </button>
+            ${content ? `
+            <button class="turn-action-tts-btn" type="button" title="음성으로 듣기">
+              <span>🔊</span>
+              <span>음성 듣기</span>
+            </button>
+            ` : ''}
           </div>
           <div class="turn-footer-right">
             ${turn.timestamp ? `<span class="turn-time">${formatTimeAgo(turn.timestamp)}</span>` : ''}
@@ -2920,6 +2928,19 @@
       return;
     }
 
+    // 0.5 TTS Speak button
+    const ttsBtn = e.target.closest('.turn-action-tts-btn');
+    if (ttsBtn) {
+      e.stopPropagation();
+      const msgEl = ttsBtn.closest('.message');
+      const turn = msgEl?.__turnData;
+      const textToSpeak = (turn?.content || msgEl?.querySelector('.turn-markdown')?.innerText || '').trim();
+      if (textToSpeak) {
+        speakText(textToSpeak, ttsBtn);
+      }
+      return;
+    }
+
     // 1. Copy button
     const copyBtn = e.target.closest('.turn-copy-btn');
     if (copyBtn) {
@@ -3695,9 +3716,68 @@
     }
   }
 
+  let selectedAgentRole = localStorage.getItem('session_manager_agent_role') || 'full';
+
+  function initAgentRoles() {
+    const roleItems = document.querySelectorAll('.agent-role-item');
+    roleItems.forEach(item => {
+      if (item.dataset.role === selectedAgentRole) {
+        item.classList.add('active');
+      } else {
+        item.classList.remove('active');
+      }
+
+      item.addEventListener('click', () => {
+        roleItems.forEach(r => r.classList.remove('active'));
+        item.classList.add('active');
+        selectedAgentRole = item.dataset.role || 'full';
+        localStorage.setItem('session_manager_agent_role', selectedAgentRole);
+        const roleName = item.querySelector('.agent-role-name')?.textContent || selectedAgentRole;
+        showToast(`${roleName} 모드가 설정되었습니다.`);
+      });
+    });
+
+    const sheetTabs = document.querySelectorAll('.model-sheet-tabs .sheet-tab-btn');
+    const tabModels = document.getElementById('tab-content-models');
+    const tabAgentRoles = document.getElementById('tab-content-agent-roles');
+
+    sheetTabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        sheetTabs.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        if (tab === 'models') {
+          if (tabModels) tabModels.style.display = 'flex';
+          if (tabAgentRoles) tabAgentRoles.style.display = 'none';
+        } else if (tab === 'agent-roles') {
+          if (tabModels) tabModels.style.display = 'none';
+          if (tabAgentRoles) tabAgentRoles.style.display = 'flex';
+        }
+      });
+    });
+  }
+
+  function initQuickPrompts() {
+    const quickCards = document.querySelectorAll('.quick-prompt-card');
+    quickCards.forEach(card => {
+      card.addEventListener('click', () => {
+        const promptText = card.dataset.prompt;
+        if (promptText && composerInput) {
+          composerInput.value = promptText;
+          composerInput.style.height = 'auto';
+          composerInput.style.height = Math.min(composerInput.scrollHeight, 160) + 'px';
+          updateSendButtonState();
+          composerInput.focus();
+        }
+      });
+    });
+  }
+
   function initModelPicker() {
     updateEffortControlUI();
     updateModelChipDisplay();
+    initAgentRoles();
+    initQuickPrompts();
 
     if (btnModelPicker) {
       btnModelPicker.addEventListener('click', openModelPicker);
@@ -3854,17 +3934,90 @@
     }
   }
 
-  // --- Voice Recognition ---
+  // --- Voice Recognition & Live Voice Mode (STT + TTS) ---
   let recognition = null;
   let isRecording = false;
   let recordingSeconds = 0;
   let recordingTimerInterval = null;
   let textBeforeRecording = '';
+  let currentVoiceSpeed = parseFloat(localStorage.getItem('session_manager_voice_speed') || '1.0');
+  let isAutoTtsEnabled = localStorage.getItem('session_manager_auto_tts') === 'true';
+  let currentSpeakingUtterance = null;
+  let currentSpeakingBtn = null;
 
   function formatRecordingTimer(secs) {
     const mins = Math.floor(secs / 60);
     const s = secs % 60;
     return `${mins}:${s < 10 ? '0' : ''}${s}`;
+  }
+
+  function cleanMarkdownForTTS(md) {
+    if (!md) return '';
+    return md
+      .replace(/```[\s\S]*?```/g, '코드 블록 생략.')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/!\[.*?\]\(.*?\)/g, '')
+      .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')
+      .replace(/[#*_~>\-]/g, '')
+      .replace(/<[^>]*>/g, '')
+      .trim();
+  }
+
+  function stopSpeaking() {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (currentSpeakingBtn) {
+      currentSpeakingBtn.classList.remove('speaking');
+      currentSpeakingBtn.innerHTML = '🔊 음성 듣기';
+      currentSpeakingBtn = null;
+    }
+    currentSpeakingUtterance = null;
+  }
+
+  function speakText(text, btnElement = null) {
+    if (!('speechSynthesis' in window)) {
+      alert('사용하시는 브라우저가 음성 합성(Text-to-Speech)을 지원하지 않습니다.');
+      return;
+    }
+
+    if (currentSpeakingBtn === btnElement && window.speechSynthesis.speaking) {
+      stopSpeaking();
+      return;
+    }
+
+    stopSpeaking();
+
+    const cleanText = cleanMarkdownForTTS(text);
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = currentVoiceSpeed;
+    utterance.lang = 'ko-KR';
+
+    // 한국어 음성 우선 선택
+    const voices = window.speechSynthesis.getVoices();
+    const koVoice = voices.find(v => v.lang.startsWith('ko') || v.lang.includes('KR'));
+    if (koVoice) {
+      utterance.voice = koVoice;
+    }
+
+    if (btnElement) {
+      currentSpeakingBtn = btnElement;
+      btnElement.classList.add('speaking');
+      btnElement.innerHTML = '⏹️ 중지';
+    }
+
+    utterance.onend = () => {
+      stopSpeaking();
+    };
+
+    utterance.onerror = () => {
+      stopSpeaking();
+    };
+
+    currentSpeakingUtterance = utterance;
+    window.speechSynthesis.speak(utterance);
   }
 
   function startVoiceRecording() {
@@ -3873,6 +4026,9 @@
       alert('사용하시는 브라우저가 음성 인식(Web Speech API)을 지원하지 않습니다.');
       return;
     }
+
+    // 재생 중인 TTS가 있다면 즉시 중지 (마이크 간섭 방지)
+    stopSpeaking();
 
     try {
       recognition = new SpeechRecognition();
@@ -3935,7 +4091,7 @@
     }
   }
 
-  function stopVoiceRecording(commitText = true) {
+  function stopVoiceRecording(commitText = true, autoSend = false) {
     isRecording = false;
     clearInterval(recordingTimerInterval);
     recordingTimerInterval = null;
@@ -3959,10 +4115,51 @@
       composerInput.style.height = 'auto';
       composerInput.style.height = Math.min(composerInput.scrollHeight, 160) + 'px';
       updateSendButtonState();
+    } else if (autoSend && composerInput.value.trim()) {
+      sendMessage();
     }
   }
 
   function initVoiceRecognition() {
+    // 음성 속도 칩 초기화
+    const speedChips = document.querySelectorAll('.voice-speed-chip');
+    speedChips.forEach(chip => {
+      if (parseFloat(chip.dataset.speed) === currentVoiceSpeed) {
+        chip.classList.add('active');
+      } else {
+        chip.classList.remove('active');
+      }
+      chip.addEventListener('click', () => {
+        speedChips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentVoiceSpeed = parseFloat(chip.dataset.speed || '1.0');
+        localStorage.setItem('session_manager_voice_speed', currentVoiceSpeed);
+        if (currentSpeakingUtterance) {
+          currentSpeakingUtterance.rate = currentVoiceSpeed;
+        }
+      });
+    });
+
+    // 자동 낭독 토글 버튼 초기화
+    const btnToggleAutoTts = document.getElementById('btn-toggle-auto-tts');
+    if (btnToggleAutoTts) {
+      if (isAutoTtsEnabled) btnToggleAutoTts.classList.add('active');
+      else btnToggleAutoTts.classList.remove('active');
+
+      btnToggleAutoTts.addEventListener('click', () => {
+        isAutoTtsEnabled = !isAutoTtsEnabled;
+        localStorage.setItem('session_manager_auto_tts', isAutoTtsEnabled);
+        if (isAutoTtsEnabled) {
+          btnToggleAutoTts.classList.add('active');
+          showToast('답변 자동 낭독이 켜졌습니다.');
+        } else {
+          btnToggleAutoTts.classList.remove('active');
+          stopSpeaking();
+          showToast('답변 자동 낭독이 꺼졌습니다.');
+        }
+      });
+    }
+
     if (btnVoice) {
       btnVoice.addEventListener('click', (e) => {
         e.preventDefault();
@@ -3976,7 +4173,7 @@
     if (btnVoiceStop) {
       btnVoiceStop.addEventListener('click', (e) => {
         e.preventDefault();
-        stopVoiceRecording(true);
+        stopVoiceRecording(true, true); // 완료 및 즉시 전송
       });
     }
     if (btnVoiceCancel) {
@@ -4028,11 +4225,244 @@
     }
   }
 
+  // ============================================================================
+  // N100 Automations Dashboard Logic
+  // ============================================================================
+
+  const btnDrawerAutomations = document.getElementById('btn-drawer-automations');
+  const automationsModalSheet = document.getElementById('automations-modal-sheet');
+  const automationsModalBackdrop = document.getElementById('automations-modal-backdrop');
+  const automationsSheetContent = document.getElementById('automations-sheet-content');
+  const btnCloseAutomations = document.getElementById('btn-close-automations');
+  const btnRefreshAutomations = document.getElementById('btn-refresh-automations');
+  const autoLogSheet = document.getElementById('auto-log-sheet');
+  const autoLogBackdrop = document.getElementById('auto-log-backdrop');
+  const autoLogTitle = document.getElementById('auto-log-title');
+  const autoLogSubtitle = document.getElementById('auto-log-subtitle');
+  const autoLogBody = document.getElementById('auto-log-body');
+  const btnCloseAutoLog = document.getElementById('btn-close-auto-log');
+
+  let automationsData = { scheduled: [], alwaysOn: [], paused: [] };
+  let currentAutoTab = 'scheduled';
+
+  function openAutomationsModal() {
+    closeDrawer();
+    if (automationsModalSheet) automationsModalSheet.classList.add('visible');
+    if (automationsModalBackdrop) automationsModalBackdrop.classList.add('visible');
+    loadAutomationsData();
+  }
+
+  function closeAutomationsModal() {
+    if (automationsModalSheet) automationsModalSheet.classList.remove('visible');
+    if (automationsModalBackdrop) automationsModalBackdrop.classList.remove('visible');
+  }
+
+  function openAutoLogModal(title, subtitle, content) {
+    if (autoLogTitle) autoLogTitle.textContent = title;
+    if (autoLogSubtitle) autoLogSubtitle.textContent = subtitle;
+    if (autoLogBody) autoLogBody.textContent = content || '(로그 내용이 없습니다)';
+    if (autoLogSheet) autoLogSheet.classList.add('visible');
+    if (autoLogBackdrop) autoLogBackdrop.classList.add('visible');
+  }
+
+  function closeAutoLogModal() {
+    if (autoLogSheet) autoLogSheet.classList.remove('visible');
+    if (autoLogBackdrop) autoLogBackdrop.classList.remove('visible');
+  }
+
+  async function loadAutomationsData() {
+    if (!automationsSheetContent) return;
+    automationsSheetContent.innerHTML = `
+      <div style="padding: 32px 0; text-align: center; color: var(--text-secondary);">
+        <div class="thinking-spinner" style="margin: 0 auto 12px auto;"></div>
+        <div>N100 크론 및 상시 서비스 현황을 불러오는 중...</div>
+      </div>
+    `;
+
+    try {
+      const res = await fetch('/api/automations');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      automationsData = {
+        scheduled: Array.isArray(data.scheduled) ? data.scheduled : [],
+        alwaysOn: Array.isArray(data.alwaysOn) ? data.alwaysOn : [],
+        paused: Array.isArray(data.paused) ? data.paused : []
+      };
+
+      const countScheduled = document.getElementById('auto-count-scheduled');
+      const countAlwaysOn = document.getElementById('auto-count-always-on');
+      const countPaused = document.getElementById('auto-count-paused');
+      if (countScheduled) countScheduled.textContent = automationsData.scheduled.length;
+      if (countAlwaysOn) countAlwaysOn.textContent = automationsData.alwaysOn.length;
+      if (countPaused) countPaused.textContent = automationsData.paused.length;
+
+      renderAutomationsTab(currentAutoTab);
+    } catch (err) {
+      automationsSheetContent.innerHTML = `
+        <div style="padding: 24px 10px; text-align: center; color: #f87171;">
+          <div style="font-weight: 600; margin-bottom: 6px;">자동화 현황을 불러오지 못했습니다.</div>
+          <div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(err.message)}</div>
+        </div>
+      `;
+    }
+  }
+
+  function renderAutomationsTab(tab) {
+    if (!automationsSheetContent) return;
+    const items = automationsData[tab === 'always-on' ? 'alwaysOn' : tab] || [];
+
+    if (items.length === 0) {
+      automationsSheetContent.innerHTML = `
+        <div style="padding: 40px 16px; text-align: center; color: var(--text-muted); font-size: 13.5px;">
+          등록된 항목이 없습니다.
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    items.forEach(item => {
+      if (tab === 'always-on') {
+        html += `
+          <div class="automation-card">
+            <div class="auto-card-top">
+              <div class="auto-card-info">
+                <span class="auto-card-name">${escapeHtml(item.name)}</span>
+                <span class="auto-card-command">${escapeHtml(item.unit)}</span>
+              </div>
+              <span class="auto-card-badge running">Running</span>
+            </div>
+            <div class="auto-card-meta">
+              <span>${escapeHtml(item.description || item.status || 'Active')}</span>
+            </div>
+          </div>
+        `;
+      } else {
+        const isPaused = !!item.isPaused;
+        html += `
+          <div class="automation-card" data-script="${escapeHtml(item.scriptPath || '')}" data-log="${escapeHtml(item.logPath || '')}">
+            <div class="auto-card-top">
+              <div class="auto-card-info">
+                <span class="auto-card-name">${escapeHtml(item.name)}</span>
+                <span class="auto-card-command">${escapeHtml(item.command)}</span>
+              </div>
+              <span class="auto-card-badge ${isPaused ? 'paused' : 'scheduled'}">${escapeHtml(item.scheduleHuman || item.schedule)}</span>
+            </div>
+            <div class="auto-card-meta">
+              <span>최근 실행: <strong>${escapeHtml(item.lastRunText || '확인 중')}</strong></span>
+              <div class="auto-card-actions">
+                ${item.logPath ? `
+                  <button type="button" class="auto-btn-log" data-log-path="${escapeHtml(item.logPath)}" data-name="${escapeHtml(item.name)}">
+                    📄 로그
+                  </button>
+                ` : ''}
+                ${item.scriptPath ? `
+                  <button type="button" class="auto-btn-run" data-script-path="${escapeHtml(item.scriptPath)}">
+                    ⚡ 지금 실행
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    });
+
+    automationsSheetContent.innerHTML = html;
+
+    // Attach click listeners to Run and Log buttons
+    automationsSheetContent.querySelectorAll('.auto-btn-run').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const scriptPath = btn.dataset.scriptPath;
+        if (!scriptPath) return;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ 실행 중...';
+        try {
+          const res = await fetch('/api/automations/run-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ script: scriptPath })
+          });
+          const result = await res.json();
+          if (res.ok && result.ok) {
+            showToast(`스크립트가 실행되었습니다 (PID: ${result.pid})`);
+            btn.innerHTML = '✓ 완료';
+          } else {
+            alert(`실행 오류: ${result.error || '실패'}`);
+            btn.innerHTML = '⚡ 지금 실행';
+          }
+        } catch (err) {
+          alert(`실행 오류: ${err.message}`);
+          btn.innerHTML = '⚡ 지금 실행';
+        } finally {
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = '⚡ 지금 실행';
+          }, 2500);
+        }
+      });
+    });
+
+    automationsSheetContent.querySelectorAll('.auto-btn-log').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const logPath = btn.dataset.logPath;
+        const name = btn.dataset.name;
+        if (!logPath) return;
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/automations/log?file=${encodeURIComponent(logPath)}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const logData = await res.json();
+          openAutoLogModal(`로그: ${name}`, logPath, logData.content);
+        } catch (err) {
+          alert(`로그 조회 실패: ${err.message}`);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  function initAutomationsDashboard() {
+    if (btnDrawerAutomations) {
+      btnDrawerAutomations.addEventListener('click', openAutomationsModal);
+    }
+    if (btnCloseAutomations) {
+      btnCloseAutomations.addEventListener('click', closeAutomationsModal);
+    }
+    if (automationsModalBackdrop) {
+      automationsModalBackdrop.addEventListener('click', closeAutomationsModal);
+    }
+    if (btnRefreshAutomations) {
+      btnRefreshAutomations.addEventListener('click', loadAutomationsData);
+    }
+
+    const autoTabs = document.querySelectorAll('.automations-tabs .auto-tab-btn');
+    autoTabs.forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        autoTabs.forEach(b => b.classList.remove('active'));
+        tabBtn.classList.add('active');
+        currentAutoTab = tabBtn.dataset.tab || 'scheduled';
+        renderAutomationsTab(currentAutoTab);
+      });
+    });
+
+    if (btnCloseAutoLog) {
+      btnCloseAutoLog.addEventListener('click', closeAutoLogModal);
+    }
+    if (autoLogBackdrop) {
+      autoLogBackdrop.addEventListener('click', closeAutoLogModal);
+    }
+  }
+
   // --- Initial Load ---
   initModelPicker();
   initVoiceRecognition();
   initSessionActionMenu();
   initDrawerComposer();
+  initAutomationsDashboard();
 
   const currentSessionTitleEl = document.getElementById('current-session-title');
   if (currentSessionTitleEl) {

@@ -195,6 +195,147 @@ function sendError(res, statusCode, message) {
   sendJson(res, statusCode, { error: message });
 }
 
+function formatCronSchedule(cronExpr) {
+  const parts = cronExpr.trim().split(/\s+/);
+  if (parts.length !== 5) return cronExpr;
+  const [min, hour, dom, mon, dow] = parts;
+
+  if (min === '*' && hour === '*' && dom === '*' && mon === '*' && dow === '*') return '매 1분마다';
+  if (min.startsWith('*/') && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    return `${min.slice(2)}분마다`;
+  }
+  if (min.startsWith('*/') && dom === '*' && mon === '*' && dow === '*') {
+    return `${hour}시 ${min.slice(2)}분마다`;
+  }
+  if (dom === '*' && mon === '*' && dow === '*' && !min.includes('/') && !hour.includes('/')) {
+    return `매일 ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+  }
+  if (dom === '*' && mon === '*' && dow === '1' && !min.includes('/') && !hour.includes('/')) {
+    return `매주 월요일 ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+  }
+  return cronExpr;
+}
+
+function getAutomationsData() {
+  const scheduled = [];
+  const paused = [];
+  const alwaysOn = [];
+
+  // 1. Crontab
+  try {
+    const rawCron = execSync('crontab -l', { encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const lines = rawCron.split('\n');
+    let idx = 0;
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const isPaused = line.startsWith('#');
+      const cleanLine = isPaused ? line.replace(/^#\s*/, '').trim() : line;
+      
+      const cronMatch = cleanLine.match(/^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/);
+      if (cronMatch) {
+        idx++;
+        const schedule = cronMatch[1];
+        const cmd = cronMatch[2];
+        
+        let name = path.basename(cmd.split(' ')[0]);
+        let scriptPath = '';
+        const pathMatch = cmd.match(/\/home\/[a-zA-Z0-9_\-\.\/]+/);
+        if (pathMatch) {
+          scriptPath = pathMatch[0];
+          name = path.basename(scriptPath);
+        }
+        
+        let logPath = '';
+        const logMatch = cmd.match(/>>\s*(\/[^\s]+)/);
+        if (logMatch) {
+          logPath = logMatch[1];
+        }
+
+        let lastRun = null;
+        let lastRunText = '미실행';
+        if (logPath && fs.existsSync(logPath)) {
+          try {
+            const st = fs.statSync(logPath);
+            lastRun = st.mtimeMs;
+            const diffMin = Math.floor((Date.now() - st.mtimeMs) / 60000);
+            if (diffMin < 1) lastRunText = '방금 전';
+            else if (diffMin < 60) lastRunText = `${diffMin}분 전`;
+            else if (diffMin < 1440) lastRunText = `${Math.floor(diffMin / 60)}시간 전`;
+            else lastRunText = `${Math.floor(diffMin / 1440)}일 전`;
+          } catch (e) {}
+        }
+
+        const item = {
+          id: `cron_${idx}`,
+          name: name,
+          command: cmd,
+          scriptPath: scriptPath,
+          schedule: schedule,
+          scheduleHuman: formatCronSchedule(schedule),
+          logPath: logPath,
+          lastRun: lastRun,
+          lastRunText: lastRunText,
+          isPaused: isPaused
+        };
+
+        if (isPaused) {
+          paused.push(item);
+        } else {
+          scheduled.push(item);
+        }
+      }
+    }
+  } catch (err) {}
+
+  // 2. Systemd User Services
+  try {
+    const rawServices = execSync('systemctl --user list-units --type=service --no-legend --no-pager', {
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
+    const lines = rawServices.split('\n');
+    let sIdx = 0;
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 4) {
+        const unit = parts[0];
+        const load = parts[1];
+        const active = parts[2];
+        const sub = parts[3];
+        const desc = parts.slice(4).join(' ');
+
+        if (unit.endsWith('.service')) {
+          sIdx++;
+          const isFailed = active === 'failed' || sub === 'failed';
+          const isRunning = active === 'active' && sub === 'running';
+
+          const sItem = {
+            id: `svc_${sIdx}`,
+            unit: unit,
+            name: unit.replace('.service', ''),
+            active: active,
+            sub: sub,
+            status: `${active} (${sub})`,
+            description: desc,
+            isRunning: isRunning,
+            isFailed: isFailed
+          };
+
+          if (isRunning) {
+            alwaysOn.push(sItem);
+          } else if (isFailed) {
+            paused.push(sItem);
+          }
+        }
+      }
+    }
+  } catch (err) {}
+
+  return { scheduled, alwaysOn, paused };
+}
+
 export function createServer(options = {}) {
   const port = Number(options.port || process.env.PORT || 8789);
   const host = options.bindHost || process.env.BIND_HOST || '0.0.0.0';
@@ -1085,6 +1226,134 @@ export function createServer(options = {}) {
             sendError(res, 400, 'Missing cid or session parameter');
           } catch (err) {
             console.error('Rename error:', err);
+            sendError(res, 500, err.message);
+          }
+        });
+        return;
+      }
+
+      // 5.4 GET /api/automations — list scheduled cron jobs and always-on services
+      if (req.method === 'GET' && pathname === '/api/automations') {
+        try {
+          const data = getAutomationsData();
+          sendJson(res, 200, { ok: true, ...data, timestamp: Date.now() });
+        } catch (err) {
+          sendError(res, 500, err.message);
+        }
+        return;
+      }
+
+      // 5.5 GET /api/automations/log — view recent log lines of an automation job
+      if (req.method === 'GET' && pathname === '/api/automations/log') {
+        try {
+          const logPath = urlObj.searchParams.get('file');
+          if (!logPath) {
+            sendError(res, 400, 'Missing file parameter');
+            return;
+          }
+          const resolvedPath = path.resolve(logPath);
+          const homeDir = os.homedir();
+          if (!resolvedPath.startsWith(homeDir + path.sep) && resolvedPath !== homeDir) {
+            sendError(res, 403, 'Access denied: Path is outside user home');
+            return;
+          }
+          const baseName = path.basename(resolvedPath).toLowerCase();
+          if (baseName.includes('.env') || baseName.includes('id_rsa') || baseName.includes('credential')) {
+            sendError(res, 403, 'Access denied: Sensitive file');
+            return;
+          }
+          if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+            sendError(res, 404, 'Log file not found');
+            return;
+          }
+
+          let realPath;
+          try {
+            realPath = fs.realpathSync(resolvedPath);
+          } catch (e) {
+            sendError(res, 400, 'Unable to resolve file path');
+            return;
+          }
+          if (!realPath.startsWith(homeDir + path.sep) && realPath !== homeDir) {
+            sendError(res, 403, 'Access denied: Symlink target outside user home');
+            return;
+          }
+          const realBaseName = path.basename(realPath).toLowerCase();
+          if (realBaseName.includes('.env') || realBaseName.includes('id_rsa') || realBaseName.includes('credential')) {
+            sendError(res, 403, 'Access denied: Sensitive file target');
+            return;
+          }
+
+          // Read last 16KB of log file
+          const fd = fs.openSync(realPath, 'r');
+          const st = fs.fstatSync(fd);
+          const readSize = Math.min(st.size, 16 * 1024);
+          const buffer = Buffer.alloc(readSize);
+          fs.readSync(fd, buffer, 0, readSize, Math.max(0, st.size - readSize));
+          fs.closeSync(fd);
+
+          const content = buffer.toString('utf-8');
+          sendJson(res, 200, { ok: true, file: realPath, content, size: st.size, mtime: st.mtimeMs });
+        } catch (err) {
+          sendError(res, 500, err.message);
+        }
+        return;
+      }
+
+      // 5.6 POST /api/automations/run-now — trigger an automation script immediately
+      if (req.method === 'POST' && pathname === '/api/automations/run-now') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          if (body.length > 16 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            const scriptPath = typeof data.script === 'string' ? data.script.trim() : '';
+            if (!scriptPath) {
+              sendError(res, 400, 'Missing script parameter');
+              return;
+            }
+
+            const resolvedScript = path.resolve(scriptPath);
+            const homeDir = os.homedir();
+            // Security: Only allow executing python scripts under ~/scripts/ or ~/projects/
+            if (!resolvedScript.startsWith(homeDir + path.sep) || (!resolvedScript.includes('/scripts/') && !resolvedScript.includes('/projects/'))) {
+              sendError(res, 403, 'Access denied: Script path not permitted');
+              return;
+            }
+            if (!resolvedScript.endsWith('.py')) {
+              sendError(res, 400, 'Only python scripts (.py) are permitted');
+              return;
+            }
+            if (!fs.existsSync(resolvedScript)) {
+              sendError(res, 404, 'Target script does not exist');
+              return;
+            }
+
+            let realScript;
+            try {
+              realScript = fs.realpathSync(resolvedScript);
+            } catch (e) {
+              sendError(res, 400, 'Unable to resolve script path');
+              return;
+            }
+            if (!realScript.startsWith(homeDir + path.sep) || (!realScript.includes('/scripts/') && !realScript.includes('/projects/'))) {
+              sendError(res, 403, 'Access denied: Script symlink target not permitted');
+              return;
+            }
+
+            // Spawn python3 process in background safely without shell
+            const child = spawn('/usr/bin/python3', [realScript], {
+              detached: true,
+              stdio: 'ignore',
+              cwd: path.dirname(realScript)
+            });
+            child.unref();
+
+            sendJson(res, 200, { ok: true, script: realScript, pid: child.pid });
+          } catch (err) {
             sendError(res, 500, err.message);
           }
         });
