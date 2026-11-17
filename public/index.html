@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/mobile.css?v=20261117_v37">
+  <link rel="stylesheet" href="/mobile.css?v=20261118_v38">
 </head>
 <body>
   <div id="app">
@@ -40,6 +40,13 @@
         </div>
       </div>
       <div id="header-actions">
+        <button id="btn-home" class="header-action-btn" type="button" title="홈(대시보드)으로 이동">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+          </svg>
+          <span class="btn-text">홈</span>
+        </button>
         <button id="btn-fullscreen" class="header-action-btn" type="button" title="전체화면 전환">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
@@ -157,7 +164,7 @@
 
     <!-- Main Chat Container -->
     <main id="chat-container">
-      <div id="empty-state" class="dashboard-welcome-view">
+      <div id="empty-state" class="dashboard-welcome-view" style="display: none;">
         <div class="welcome-header-area">
           <div class="welcome-badge">Google Antigravity 2.0</div>
           <h2 class="welcome-greeting">안녕하세요, ttolmany님 👋</h2>
@@ -223,6 +230,28 @@
     <footer id="composer">
       <!-- Queued Messages (대기 중인 프롬프트) -->
       <div id="queued-messages-container" style="display: none;"></div>
+
+      <!-- Quick Prompt Chips Bar (Antigravity 2.0 Style) -->
+      <div id="composer-quick-chips" class="composer-quick-chips">
+        <div class="quick-chips-scroll">
+          <button type="button" class="quick-chip-btn" data-prompt="코드베이스 전체 점검 및 개선 가능한 항목 리포트해줘">
+            <span class="chip-icon">🔍</span>
+            <span class="chip-label">코드베이스 점검</span>
+          </button>
+          <button type="button" class="quick-chip-btn" data-prompt="/goal 장기 자율 작업으로 다음 목표를 수행해줘: ">
+            <span class="chip-icon">🎯</span>
+            <span class="chip-label">/goal 자율 작업</span>
+          </button>
+          <button type="button" class="quick-chip-btn" data-prompt="N100 서버의 cron 및 systemd 자동화 작업들의 상태를 점검해줘">
+            <span class="chip-icon">⚡</span>
+            <span class="chip-label">자동화 점검</span>
+          </button>
+          <button type="button" class="quick-chip-btn" data-prompt="최근 Git 커밋 및 변경 내역(diff)을 요약해줘">
+            <span class="chip-icon">📝</span>
+            <span class="chip-label">최근 Git 요약</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Attachment Previews -->
       <div id="attachment-preview-bar" class="attachment-preview-bar" style="display: none;"></div>
@@ -551,6 +580,6 @@
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/mobile.js?v=20261117_v48"></script>
+  <script src="/mobile.js?v=20261118_v49"></script>
 </body>
 </html>

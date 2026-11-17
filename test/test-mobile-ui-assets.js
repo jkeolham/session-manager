@@ -39,6 +39,8 @@ function run() {
   assert(html.includes('global-toast'), 'index.html must include global-toast');
   assert(html.includes('drawer-composer'), 'index.html must include drawer-composer');
   assert(html.includes('btn-drawer-new'), 'index.html must include btn-drawer-new');
+  assert(html.includes('btn-home'), 'index.html must include btn-home');
+  assert(html.includes('composer-quick-chips'), 'index.html must include composer-quick-chips');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
@@ -68,6 +70,8 @@ function run() {
   assert(css.includes('effort-segmented-control'), 'mobile.css should style effort-segmented-control');
   assert(css.includes('usage-modal-sheet'), 'mobile.css should style usage-modal-sheet');
   assert(css.includes('voice-recording-bar'), 'mobile.css should style voice-recording-bar');
+  assert(css.includes('composer-quick-chips'), 'mobile.css should style composer-quick-chips');
+  assert(css.includes('quick-chip-btn'), 'mobile.css should style quick-chip-btn');
   assert(css.includes('voice-btn.recording') || css.includes('.voice-btn.recording'), 'mobile.css should style voice-btn recording state');
   assert(css.includes('msg-attach-card'), 'mobile.css should style msg-attach-card');
   assert(css.includes('attach-link-disclosure'), 'mobile.css should style attach-link-disclosure');
@@ -87,6 +91,7 @@ function run() {
   assert(js.includes('extractUserTurnAttachments'), 'mobile.js should include extractUserTurnAttachments');
   assert(js.includes('loadAttachmentText'), 'mobile.js should include loadAttachmentText');
   assert(js.includes('initModelPicker'), 'mobile.js should include initModelPicker');
+  assert(js.includes('showWelcomeDashboard'), 'mobile.js should include showWelcomeDashboard');
   assert(js.includes('setEffort'), 'mobile.js should include setEffort');
   assert(js.includes('openUsageModal'), 'mobile.js should include openUsageModal');
   assert(js.includes('initVoiceRecognition'), 'mobile.js should include initVoiceRecognition');

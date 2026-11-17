@@ -5,6 +5,7 @@
   const headerTitle = document.getElementById('current-session-title');
   const headerBadge = document.getElementById('current-session-badge');
   const headerSubtitle = document.getElementById('current-session-subtitle');
+  const btnHome = document.getElementById('btn-home');
   const drawer = document.getElementById('drawer');
   const drawerBackdrop = document.getElementById('drawer-backdrop');
   const sessionListEl = document.getElementById('session-list');
@@ -3757,6 +3758,46 @@
     });
   }
 
+  function showWelcomeDashboard() {
+    currentSession = null;
+    localStorage.removeItem('active_session');
+
+    // Disconnect active SSE stream
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+
+    // Reset pagination state
+    earliestLoadedTurnIndex = null;
+    hasEarlierMessages = false;
+    isLoadingEarlier = false;
+
+    // Reset Header
+    headerTitle.innerText = '세션을 선택하세요';
+    headerSubtitle.innerText = '';
+    headerBadge.innerText = 'Offline';
+    headerBadge.className = 'badge';
+
+    const branchBadge = document.getElementById('current-session-branch');
+    if (branchBadge) branchBadge.style.display = 'none';
+
+    // Show Welcome Empty State, clear chat
+    chatHistory.innerHTML = '';
+    if (emptyState) emptyState.style.display = 'flex';
+
+    // Reset Composer
+    composerInput.value = '';
+    composerInput.style.height = 'auto';
+    updateSendButtonState();
+
+    // Close in-chat search if open
+    hideChatSearchBar();
+
+    // Close drawer
+    closeDrawer();
+  }
+
   function initQuickPrompts() {
     const quickCards = document.querySelectorAll('.quick-prompt-card');
     quickCards.forEach(card => {
@@ -3768,9 +3809,36 @@
           composerInput.style.height = Math.min(composerInput.scrollHeight, 160) + 'px';
           updateSendButtonState();
           composerInput.focus();
+          try {
+            composerInput.setSelectionRange(promptText.length, promptText.length);
+          } catch (e) {}
         }
       });
     });
+
+    const quickChips = document.querySelectorAll('.quick-chip-btn');
+    quickChips.forEach(chip => {
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        const promptText = chip.dataset.prompt;
+        if (promptText && composerInput) {
+          composerInput.value = promptText;
+          composerInput.style.height = 'auto';
+          composerInput.style.height = Math.min(composerInput.scrollHeight, 160) + 'px';
+          updateSendButtonState();
+          composerInput.focus();
+          try {
+            composerInput.setSelectionRange(promptText.length, promptText.length);
+          } catch (e) {}
+        }
+      });
+    });
+
+    if (btnHome) {
+      btnHome.addEventListener('click', () => {
+        showWelcomeDashboard();
+      });
+    }
   }
 
   function initModelPicker() {
@@ -4476,11 +4544,18 @@
 
   fetchSessions().then(() => {
     const saved = localStorage.getItem('active_session');
+    let restored = false;
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        selectSession(parsed);
+        if (parsed && (parsed.cid || parsed.name)) {
+          selectSession(parsed);
+          restored = true;
+        }
       } catch (e) {}
+    }
+    if (!restored) {
+      showWelcomeDashboard();
     }
   });
 

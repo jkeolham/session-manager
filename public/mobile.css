@@ -1788,6 +1788,68 @@ details.work-process-block[open] .claude-pill-arrow {
   border-color: #f28b82;
 }
 
+/* Composer Quick Prompt Chips Bar (Antigravity 2.0 Style) */
+.composer-quick-chips {
+  width: 100%;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.quick-chips-scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 2px 2px 4px 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.quick-chips-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: var(--bg-card, #1b1b20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--text-secondary, #9da3ae);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.quick-chip-btn .chip-icon {
+  font-size: 12px;
+}
+
+.quick-chip-btn .chip-label {
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+
+.quick-chip-btn:hover {
+  background: rgba(168, 199, 250, 0.1);
+  border-color: rgba(168, 199, 250, 0.3);
+  color: var(--text-primary, #f0f6fc);
+}
+
+.quick-chip-btn:active {
+  transform: scale(0.96);
+  background: rgba(168, 199, 250, 0.18);
+  border-color: var(--accent-color, #a8c7fa);
+  color: var(--accent-color, #a8c7fa);
+}
+
 .composer-box {
   display: flex;
   flex-direction: column;
