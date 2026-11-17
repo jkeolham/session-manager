@@ -110,6 +110,22 @@ def delete_conversation(cid):
     return ls_rpc("DeleteCascadeTrajectory", {"cascadeId": cid})
 
 
+def rename_conversation(cid, title):
+    """Update conversation title via Language Server UpdateConversationAnnotations RPC."""
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return {"error": "title cannot be empty"}
+    payload = {
+        "cascadeId": cid,
+        "annotations": {"title": clean_title},
+        "mergeAnnotations": True
+    }
+    resp = ls_rpc("UpdateConversationAnnotations", payload)
+    if resp.get("error"):
+        return resp
+    return {"ok": True, "cid": cid, "title": clean_title}
+
+
 def respond_interaction(cid, responses=None, step_index=None, cancelled=False):
     """HandleCascadeUserInteraction on daemon LS — replies to ask_question or other interactions."""
     trajectories = ls_rpc("GetAllCascadeTrajectories", {})
@@ -386,6 +402,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(400, {"error": "a full conversation id and text are required"})
                 return
             result = send_user(cid, text, data.get("plannerConfig"))
+        elif path == "/rename":
+            cid = (data.get("cid") or "").strip()
+            title = (data.get("title") or "").strip()
+            if not CID_RE.match(cid) or not title:
+                self._reply(400, {"error": "a full conversation id and title are required"})
+                return
+            result = rename_conversation(cid, title)
         elif path == "/delete":
             cid = (data.get("cid") or "").strip()
             if not CID_RE.match(cid):

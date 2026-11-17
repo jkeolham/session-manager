@@ -72,13 +72,29 @@ async function runRenameTests() {
 
     // 6. Persistent custom title verification: ensure custom_titles.json overrides
     const { execFileSync } = await import('node:child_process');
-    const out = execFileSync('python3', ['remote-sessions.py', '--titles'], { encoding: 'utf-8' });
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const projectRoot = path.resolve(__dirname, '..');
+    const out = execFileSync('python3', [path.join(projectRoot, 'remote-sessions.py'), '--titles'], {
+      encoding: 'utf-8',
+      cwd: projectRoot
+    });
     const titles = JSON.parse(out);
     assert(titles['0627caa5-1a0c-43ec-a254-75f5a7e4576b'], 'CID must exist in remote-sessions titles');
     assert.strictEqual(titles['0627caa5-1a0c-43ec-a254-75f5a7e4576b'].title, '감사 및 리뷰어');
     console.log('✅ Persistent custom title override test passed!');
 
-    console.log('\n🎉 ALL 6 RENAME API TESTS PASSED!');
+    // 7. Verify Antigravity annotations pbtxt file has updated title
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const pbtxtPath = path.join(os.homedir(), '.gemini/antigravity-cli/annotations/0627caa5-1a0c-43ec-a254-75f5a7e4576b.pbtxt');
+    assert(fs.existsSync(pbtxtPath), 'Annotations pbtxt file must exist');
+    const pbtxtContent = fs.readFileSync(pbtxtPath, 'utf-8');
+    assert(pbtxtContent.includes('title:"감사 및 리뷰어"'), 'Annotations pbtxt must contain updated title');
+    console.log('✅ Antigravity annotations pbtxt title sync verified!');
+
+    console.log('\n🎉 ALL 7 RENAME API TESTS PASSED!');
   } finally {
     server.close();
   }
