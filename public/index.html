@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/mobile.css?v=20261118_v38">
+  <link rel="stylesheet" href="/mobile.css?v=20261118_v39">
 </head>
 <body>
   <div id="app">
@@ -301,6 +301,15 @@
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
+            <button id="btn-toggle-quick-chips" class="toggle-chips-btn" type="button" aria-label="추천 작업 토글" title="추천 프롬프트 열기/닫기">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path>
+                <path d="M20 3v4"></path>
+                <path d="M22 5h-4"></path>
+                <path d="M4 17v2"></path>
+                <path d="M5 18H3"></path>
+              </svg>
+            </button>
             <button id="btn-model-picker" class="model-picker-chip" type="button" aria-label="모델 선택">
               <span id="model-picker-name" class="model-name-text">Gemini 3.8 Flash High</span>
               <svg class="model-gauge-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f9ab00" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -580,6 +589,6 @@
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/mobile.js?v=20261118_v49"></script>
+  <script src="/mobile.js?v=20261118_v50"></script>
 </body>
 </html>

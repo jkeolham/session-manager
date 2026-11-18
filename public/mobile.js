@@ -19,6 +19,8 @@
   const btnScrollBottom = document.getElementById('btn-scroll-bottom');
   const filePicker = document.getElementById('file-picker');
   const btnAttach = document.getElementById('btn-attach');
+  const btnToggleQuickChips = document.getElementById('btn-toggle-quick-chips');
+  const composerQuickChips = document.getElementById('composer-quick-chips');
   const attachmentPreviewBar = document.getElementById('attachment-preview-bar');
 
   // In-chat Search Elements
@@ -905,6 +907,7 @@
 
     // Show Chat, Hide Empty State
     emptyState.style.display = 'none';
+    setQuickChipsVisibility(false);
     chatHistory.innerHTML = '<div class="loading-spinner">대화 내역을 불러오는 중...</div>';
     renderQueuedMessages();
 
@@ -3758,6 +3761,16 @@
     });
   }
 
+  function setQuickChipsVisibility(visible) {
+    if (composerQuickChips) {
+      composerQuickChips.classList.toggle('visible', !!visible);
+    }
+    if (btnToggleQuickChips) {
+      btnToggleQuickChips.classList.toggle('active', !!visible);
+      btnToggleQuickChips.setAttribute('aria-expanded', visible ? 'true' : 'false');
+    }
+  }
+
   function showWelcomeDashboard() {
     currentSession = null;
     localStorage.removeItem('active_session');
@@ -3785,6 +3798,7 @@
     // Show Welcome Empty State, clear chat
     chatHistory.innerHTML = '';
     if (emptyState) emptyState.style.display = 'flex';
+    setQuickChipsVisibility(true);
 
     // Reset Composer
     composerInput.value = '';
@@ -3830,9 +3844,20 @@
           try {
             composerInput.setSelectionRange(promptText.length, promptText.length);
           } catch (e) {}
+          if (currentSession) {
+            setQuickChipsVisibility(false);
+          }
         }
       });
     });
+
+    if (btnToggleQuickChips) {
+      btnToggleQuickChips.addEventListener('click', (e) => {
+        e.preventDefault();
+        const isVisible = composerQuickChips && composerQuickChips.classList.contains('visible');
+        setQuickChipsVisibility(!isVisible);
+      });
+    }
 
     if (btnHome) {
       btnHome.addEventListener('click', () => {
