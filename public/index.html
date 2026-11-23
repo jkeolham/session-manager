@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="apple-touch-icon" href="/icons/icon-192.png?v=20261020_v20">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/mobile.css?v=20261118_v39">
+  <link rel="stylesheet" href="/mobile.css?v=20261124_v40">
 </head>
 <body>
   <div id="app">
@@ -251,6 +251,21 @@
             <span class="chip-label">최근 Git 요약</span>
           </button>
         </div>
+      </div>
+
+      <!-- Reply Context Preview Bar (인용 답장 바) -->
+      <div id="reply-preview-bar" class="reply-preview-bar" style="display: none;">
+        <div class="reply-preview-left">
+          <svg class="reply-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 17 4 12 9 7"></polyline>
+            <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+          </svg>
+          <div class="reply-preview-content">
+            <div class="reply-preview-author" id="reply-preview-author">어시스턴트에게 답장</div>
+            <div class="reply-preview-text" id="reply-preview-text">인용 텍스트 미리보기...</div>
+          </div>
+        </div>
+        <button id="btn-cancel-reply" class="reply-cancel-btn" type="button" aria-label="답장 취소" title="답장 취소">✕</button>
       </div>
 
       <!-- Attachment Previews -->
@@ -582,6 +597,39 @@
       </button>
     </div>
 
+    <!-- Message Bubble Context / Action Menu (Long-press & Reply) -->
+    <div id="message-context-backdrop" class="message-context-backdrop hidden"></div>
+    <div id="message-context-menu" class="message-context-menu hidden" role="menu" aria-hidden="true">
+      <button type="button" class="msg-action-item" data-action="reply" role="menuitem">
+        <svg class="action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 17 4 12 9 7"></polyline>
+          <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+        </svg>
+        <span>답장 (Reply)</span>
+      </button>
+      <button type="button" class="msg-action-item" data-action="copy" role="menuitem">
+        <svg class="action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        <span>내용 복사</span>
+      </button>
+      <button type="button" class="msg-action-item" data-action="speak" role="menuitem">
+        <svg class="action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        </svg>
+        <span id="msg-action-speak-text">음성 듣기</span>
+      </button>
+      <button type="button" class="msg-action-item" data-action="review" id="msg-action-review" role="menuitem" style="display: none;">
+        <svg class="action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+        <span>코드 변경 검토</span>
+      </button>
+    </div>
+
     <!-- Global Toast Notification -->
     <div id="global-toast" class="global-toast hidden" role="status" aria-live="polite"></div>
   </div>
@@ -589,6 +637,6 @@
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/mobile.js?v=20261118_v50"></script>
+  <script src="/mobile.js?v=20261124_v51"></script>
 </body>
 </html>

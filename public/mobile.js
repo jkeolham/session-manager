@@ -23,6 +23,20 @@
   const composerQuickChips = document.getElementById('composer-quick-chips');
   const attachmentPreviewBar = document.getElementById('attachment-preview-bar');
 
+  // Reply Context Elements
+  const replyPreviewBar = document.getElementById('reply-preview-bar');
+  const replyPreviewAuthor = document.getElementById('reply-preview-author');
+  const replyPreviewText = document.getElementById('reply-preview-text');
+  const btnCancelReply = document.getElementById('btn-cancel-reply');
+  let activeReplyTarget = null;
+
+  // Message Bubble Context Menu Elements (Long-press & Reply)
+  const messageContextMenu = document.getElementById('message-context-menu');
+  const messageContextBackdrop = document.getElementById('message-context-backdrop');
+  const msgActionReview = document.getElementById('msg-action-review');
+  const msgActionSpeakText = document.getElementById('msg-action-speak-text');
+  let activeContextMenuTurn = null;
+
   // In-chat Search Elements
   const chatSearchBar = document.getElementById('chat-search-bar');
   const chatSearchInput = document.getElementById('chat-search-input');
@@ -621,6 +635,231 @@
     sessionActionMenu.__targetBtn = null;
   }
 
+  // --- Reply & Message Context Menu Handlers ---
+  function startReply(turn) {
+    if (!turn) return;
+    const isUser = turn.role === 'user';
+    const authorLabel = isUser ? '👤 나에게 답장' : '🤖 어시스턴트에게 답장';
+    let contentText = '';
+    if (isUser) {
+      const extracted = extractUserTurnAttachments(turn.content, turn.attachments);
+      contentText = (extracted.cleanText || '').trim();
+    } else {
+      contentText = (turn.content || turn.text || '').trim();
+    }
+    if (!contentText && Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) {
+      contentText = `[도구 실행 ${turn.toolCalls.length}건]`;
+    }
+
+    activeReplyTarget = {
+      role: turn.role,
+      authorLabel: authorLabel,
+      snippet: contentText.slice(0, 100),
+      fullContent: contentText,
+      timestamp: turn.timestamp
+    };
+
+    if (replyPreviewAuthor) replyPreviewAuthor.textContent = authorLabel;
+    if (replyPreviewText) replyPreviewText.textContent = contentText || '(내용 없음)';
+    if (replyPreviewBar) {
+      replyPreviewBar.style.display = 'flex';
+    }
+
+    if (composerInput) {
+      composerInput.focus();
+    }
+    scrollToBottom();
+  }
+
+  function cancelReply() {
+    activeReplyTarget = null;
+    if (replyPreviewBar) {
+      replyPreviewBar.style.display = 'none';
+    }
+  }
+
+  function openMessageContextMenu(turn, clientX, clientY, targetEl) {
+    if (!turn || !messageContextMenu) return;
+    activeContextMenuTurn = turn;
+
+    const hasWork = (Array.isArray(turn.toolCalls) && turn.toolCalls.length > 0) || !!turn.thinking;
+    if (msgActionReview) {
+      msgActionReview.style.display = (turn.role === 'assistant' && hasWork) ? 'flex' : 'none';
+    }
+
+    if (msgActionSpeakText) {
+      msgActionSpeakText.textContent = isSpeaking ? '음성 중지' : '음성으로 듣기';
+    }
+
+    messageContextMenu.classList.remove('hidden');
+    if (messageContextBackdrop) messageContextBackdrop.classList.remove('hidden');
+
+    const menuWidth = 180;
+    const menuHeight = 150;
+    let posX = clientX;
+    let posY = clientY;
+
+    if (!posX || !posY) {
+      if (targetEl) {
+        const rect = targetEl.getBoundingClientRect();
+        posX = rect.left + rect.width / 2;
+        posY = rect.top + rect.height / 2;
+      } else {
+        posX = window.innerWidth / 2;
+        posY = window.innerHeight / 2;
+      }
+    }
+
+    const safeMargin = 12;
+    posX = Math.max(safeMargin, Math.min(window.innerWidth - menuWidth - safeMargin, posX - menuWidth / 2));
+    posY = Math.max(safeMargin, Math.min(window.innerHeight - menuHeight - safeMargin, posY - menuHeight / 2));
+
+    messageContextMenu.style.left = `${posX}px`;
+    messageContextMenu.style.top = `${posY}px`;
+  }
+
+  function closeMessageContextMenu() {
+    activeContextMenuTurn = null;
+    if (messageContextMenu) messageContextMenu.classList.add('hidden');
+    if (messageContextBackdrop) messageContextBackdrop.classList.add('hidden');
+  }
+
+  function initMessageContextMenu() {
+    if (btnCancelReply) {
+      btnCancelReply.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelReply();
+      });
+    }
+
+    if (messageContextMenu) {
+      messageContextMenu.addEventListener('click', async (e) => {
+        const actionBtn = e.target.closest('.msg-action-item');
+        if (!actionBtn) return;
+        e.stopPropagation();
+        const action = actionBtn.dataset.action;
+        const turn = activeContextMenuTurn;
+        closeMessageContextMenu();
+        if (!turn) return;
+
+        if (action === 'reply') {
+          startReply(turn);
+        } else if (action === 'copy') {
+          const text = (turn.content || turn.text || '').trim();
+          if (text) {
+            try {
+              await navigator.clipboard.writeText(text);
+              showToast('메시지가 복사되었습니다.');
+            } catch (err) {
+              console.error('Copy failed:', err);
+            }
+          }
+        } else if (action === 'speak') {
+          const text = (turn.content || turn.text || '').trim();
+          if (text) {
+            speakText(text);
+          }
+        } else if (action === 'review') {
+          openReviewModal();
+        }
+      });
+    }
+
+    if (messageContextBackdrop) {
+      messageContextBackdrop.addEventListener('click', closeMessageContextMenu);
+    }
+  }
+
+  function initMessageLongPress() {
+    if (!chatHistory) return;
+
+    let longPressTimer = null;
+    let startX = 0;
+    let startY = 0;
+    let touchTargetTurn = null;
+    let touchTargetEl = null;
+    let isLongPressTriggered = false;
+
+    const cancelLongPress = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    };
+
+    chatHistory.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) {
+        cancelLongPress();
+        return;
+      }
+
+      // Ignore interactive elements
+      const interactiveEl = e.target.closest('button, a, summary, input, textarea, select, .claude-work-card, .voice-audio-player');
+      if (interactiveEl) {
+        cancelLongPress();
+        return;
+      }
+
+      const msgEl = e.target.closest('.message');
+      if (!msgEl || !msgEl.__turnData) {
+        cancelLongPress();
+        return;
+      }
+
+      const touch = e.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      touchTargetTurn = msgEl.__turnData;
+      touchTargetEl = msgEl.querySelector('.bubble') || msgEl;
+      isLongPressTriggered = false;
+
+      cancelLongPress();
+      longPressTimer = setTimeout(() => {
+        isLongPressTriggered = true;
+        if (navigator.vibrate) {
+          try { navigator.vibrate(35); } catch (_) {}
+        }
+        openMessageContextMenu(touchTargetTurn, startX, startY, touchTargetEl);
+      }, 450);
+    }, { passive: true });
+
+    chatHistory.addEventListener('touchmove', (e) => {
+      if (!longPressTimer) return;
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - startX);
+      const dy = Math.abs(touch.clientY - startY);
+      if (dx > 10 || dy > 10) {
+        cancelLongPress();
+      }
+    }, { passive: true });
+
+    chatHistory.addEventListener('touchend', (e) => {
+      cancelLongPress();
+      if (isLongPressTriggered) {
+        if (e.cancelable) e.preventDefault();
+        isLongPressTriggered = false;
+      }
+    });
+
+    chatHistory.addEventListener('touchcancel', () => {
+      cancelLongPress();
+      isLongPressTriggered = false;
+    });
+
+    // Desktop right-click (contextmenu) fallback
+    chatHistory.addEventListener('contextmenu', (e) => {
+      const interactiveEl = e.target.closest('button, a, summary, input, textarea, select');
+      if (interactiveEl) return;
+
+      const msgEl = e.target.closest('.message');
+      if (!msgEl || !msgEl.__turnData) return;
+
+      e.preventDefault();
+      openMessageContextMenu(msgEl.__turnData, e.clientX, e.clientY, msgEl.querySelector('.bubble') || msgEl);
+    });
+  }
+
   function initSessionActionMenu() {
     if (!sessionActionMenu) return;
 
@@ -908,6 +1147,8 @@
     // Show Chat, Hide Empty State
     emptyState.style.display = 'none';
     setQuickChipsVisibility(false);
+    cancelReply();
+    closeMessageContextMenu();
     chatHistory.innerHTML = '<div class="loading-spinner">대화 내역을 불러오는 중...</div>';
     renderQueuedMessages();
 
@@ -1306,6 +1547,13 @@
       bodyHtml += `
         <div class="turn-footer">
           <div class="turn-footer-left">
+            <button class="turn-reply-btn" type="button" title="답장 (Reply)" aria-label="답장">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 17 4 12 9 7"></polyline>
+                <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+              </svg>
+              <span>답장</span>
+            </button>
             <button class="turn-review-btn" type="button" title="코드 변경 사항 리뷰">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -1524,6 +1772,12 @@
         <div class="user-turn-meta">
           ${isProcessing ? '<span class="user-processing-indicator" title="에이전트가 처리 중입니다..."><span class="user-spinner-dot"></span></span>' : ''}
           ${timeText ? `<span class="turn-time user-turn-time">${escapeHtml(timeText)}</span>` : ''}
+          <button class="turn-reply-btn user-reply-btn" type="button" title="답장 (Reply)" aria-label="답장">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 17 4 12 9 7"></polyline>
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+            </svg>
+          </button>
           <button class="turn-copy-btn user-copy-btn" type="button" title="메시지 복사" aria-label="메시지 복사">
             <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -2233,9 +2487,17 @@
 
   async function sendMessage() {
     if (isSending) return;
-    const text = composerInput.value.trim();
+    const rawText = composerInput.value.trim();
     const hasAttachments = pendingAttachments.length > 0;
-    if (!text && !hasAttachments) return;
+    if (!rawText && !hasAttachments) return;
+
+    let text = rawText;
+    if (activeReplyTarget) {
+      const snippet = (activeReplyTarget.snippet || '').replace(/\r?\n+/g, ' ').slice(0, 120);
+      const quoteBlock = `> ↩️ **[인용 - ${activeReplyTarget.authorLabel}]**: ${snippet}\n\n`;
+      text = quoteBlock + (rawText || '');
+      cancelReply();
+    }
 
     // 만약 세션이 선택되지 않은 상태라면 자동으로 새 대화 시작!
     if (!currentSession) {
@@ -2968,6 +3230,18 @@
         } catch (err) {
           console.error('Clipboard copy failed:', err);
         }
+      }
+      return;
+    }
+
+    // 1.5 Reply button
+    const replyBtn = e.target.closest('.turn-reply-btn');
+    if (replyBtn) {
+      e.stopPropagation();
+      const msgEl = replyBtn.closest('.message');
+      const turn = msgEl?.__turnData;
+      if (turn) {
+        startReply(turn);
       }
       return;
     }
@@ -3799,6 +4073,8 @@
     chatHistory.innerHTML = '';
     if (emptyState) emptyState.style.display = 'flex';
     setQuickChipsVisibility(true);
+    cancelReply();
+    closeMessageContextMenu();
 
     // Reset Composer
     composerInput.value = '';
@@ -4554,6 +4830,8 @@
   initModelPicker();
   initVoiceRecognition();
   initSessionActionMenu();
+  initMessageContextMenu();
+  initMessageLongPress();
   initDrawerComposer();
   initAutomationsDashboard();
 

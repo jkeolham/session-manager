@@ -42,6 +42,9 @@ function run() {
   assert(html.includes('btn-home'), 'index.html must include btn-home');
   assert(html.includes('composer-quick-chips'), 'index.html must include composer-quick-chips');
   assert(html.includes('btn-toggle-quick-chips'), 'index.html must include btn-toggle-quick-chips');
+  assert(html.includes('reply-preview-bar'), 'index.html must include reply-preview-bar');
+  assert(html.includes('message-context-menu'), 'index.html must include message-context-menu');
+  assert(html.includes('message-context-backdrop'), 'index.html must include message-context-backdrop');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
@@ -65,6 +68,9 @@ function run() {
   assert(css.includes('keyboard-active'), 'mobile.css should handle keyboard-active');
   assert(css.includes('review-modal'), 'mobile.css should style review-modal');
   assert(css.includes('chat-search-bar'), 'mobile.css should style chat-search-bar');
+  assert(css.includes('reply-preview-bar'), 'mobile.css should style reply-preview-bar');
+  assert(css.includes('message-context-menu'), 'mobile.css should style message-context-menu');
+  assert(css.includes('turn-reply-btn'), 'mobile.css should style turn-reply-btn');
   assert(css.includes('search-highlight'), 'mobile.css should style search-highlight');
   assert(css.includes('model-picker-chip'), 'mobile.css should style model-picker-chip');
   assert(css.includes('model-picker-sheet'), 'mobile.css should style model-picker-sheet');
@@ -122,6 +128,9 @@ function run() {
   assert(js.includes('requestFullscreen'), 'mobile.js should support fullscreen request');
   assert(js.includes('serviceWorker'), 'mobile.js should register service worker');
   assert(js.includes('beforeinstallprompt'), 'mobile.js should handle PWA install prompt');
+  assert(js.includes('startReply'), 'mobile.js should include startReply');
+  assert(js.includes('initMessageContextMenu'), 'mobile.js should include initMessageContextMenu');
+  assert(js.includes('initMessageLongPress'), 'mobile.js should include initMessageLongPress');
 
   // PWA checks
   const manifestPath = path.join(__dirname, '../public/manifest.json');
