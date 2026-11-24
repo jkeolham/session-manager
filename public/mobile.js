@@ -115,7 +115,7 @@
             <div class="code-block">
               <div class="code-header">
                 <span>${escapeHtml(lang)}</span>
-                <button class="copy-btn" onclick="window.copyCodeBlock(this)">복사</button>
+                <button class="copy-btn" type="button" title="코드 복사" aria-label="코드 복사">복사</button>
               </div>
               <pre><code>${escapeHtml(cleanCode)}</code></pre>
             </div>
@@ -220,7 +220,7 @@
         <div class="code-block">
           <div class="code-header">
             <span>${escapeHtml(cleanLang)}</span>
-            <button class="copy-btn" onclick="window.copyCodeBlock(this)">복사</button>
+            <button class="copy-btn" type="button" title="코드 복사" aria-label="코드 복사">복사</button>
           </div>
           <pre><code>${escapeHtml(cleanCode)}</code></pre>
         </div>
@@ -376,18 +376,65 @@
     return dirtyHtml;
   }
 
-  window.copyCodeBlock = function (btn) {
-    const codeEl = btn.closest('.code-block').querySelector('pre code');
+  async function copyToClipboard(text) {
+    if (!text) return false;
+    // 1. Modern Clipboard API
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        console.warn('navigator.clipboard.writeText failed, trying execCommand fallback:', err);
+      }
+    }
+    // 2. Fallback: invisible textarea with execCommand('copy')
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.top = '-9999px';
+      textarea.style.left = '-9999px';
+      textarea.style.opacity = '0';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return success;
+    } catch (err) {
+      console.error('execCommand copy fallback failed:', err);
+      return false;
+    }
+  }
+
+  async function copyCodeBlock(btn) {
+    if (!btn) return;
+    const codeBlock = btn.closest('.code-block');
+    const codeEl = codeBlock ? codeBlock.querySelector('pre code') : null;
     if (!codeEl) return;
-    const text = codeEl.innerText;
-    navigator.clipboard.writeText(text).then(() => {
+    const text = (codeEl.innerText || codeEl.textContent || '').trim();
+    if (!text) return;
+
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      if (navigator.vibrate) {
+        try { navigator.vibrate(25); } catch (_) {}
+      }
       const orig = btn.innerText;
       btn.innerText = '완료!';
-      setTimeout(() => { btn.innerText = orig; }, 1500);
-    }).catch(err => {
-      console.error('Copy failed:', err);
-    });
-  };
+      btn.classList.add('copied');
+      showToast('코드가 클립보드에 복사되었습니다.');
+      setTimeout(() => {
+        btn.innerText = orig;
+        btn.classList.remove('copied');
+      }, 1500);
+    } else {
+      showToast('코드 복사에 실패했습니다.');
+    }
+  }
+
+  window.copyCodeBlock = copyCodeBlock;
 
   function scrollToBottom(force = false) {
     if (force || isAutoScroll) {
@@ -748,11 +795,11 @@
         } else if (action === 'copy') {
           const text = (turn.content || turn.text || '').trim();
           if (text) {
-            try {
-              await navigator.clipboard.writeText(text);
+            const ok = await copyToClipboard(text);
+            if (ok) {
               showToast('메시지가 복사되었습니다.');
-            } catch (err) {
-              console.error('Copy failed:', err);
+            } else {
+              showToast('복사에 실패했습니다.');
             }
           }
         } else if (action === 'speak') {
@@ -3207,7 +3254,16 @@
       return;
     }
 
-    // 1. Copy button
+    // 0.8 Code block copy button (.copy-btn)
+    const codeCopyBtn = e.target.closest('.copy-btn');
+    if (codeCopyBtn && !codeCopyBtn.classList.contains('turn-copy-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      await copyCodeBlock(codeCopyBtn);
+      return;
+    }
+
+    // 1. Message Copy button
     const copyBtn = e.target.closest('.turn-copy-btn');
     if (copyBtn) {
       e.stopPropagation();
@@ -3215,8 +3271,8 @@
       const turn = msgEl?.__turnData;
       const textToCopy = (turn?.content || msgEl?.querySelector('.turn-markdown')?.innerText || msgEl?.querySelector('.user-content-text')?.innerText || '').trim();
       if (textToCopy) {
-        try {
-          await navigator.clipboard.writeText(textToCopy);
+        const ok = await copyToClipboard(textToCopy);
+        if (ok) {
           const iconCopy = copyBtn.querySelector('.icon-copy');
           const iconCheck = copyBtn.querySelector('.icon-check');
           copyBtn.classList.add('copied');
@@ -3227,8 +3283,6 @@
             if (iconCopy) iconCopy.style.display = 'inline-block';
             if (iconCheck) iconCheck.style.display = 'none';
           }, 1500);
-        } catch (err) {
-          console.error('Clipboard copy failed:', err);
         }
       }
       return;

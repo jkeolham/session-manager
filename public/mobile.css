@@ -1048,6 +1048,11 @@ a:hover code,
   background: rgba(255, 255, 255, 0.1);
 }
 
+.copy-btn.copied {
+  color: #34d399;
+  font-weight: 600;
+}
+
 .code-block pre {
   padding: 12px;
   overflow-x: auto;
