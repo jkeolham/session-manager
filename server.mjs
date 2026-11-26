@@ -575,11 +575,12 @@ export function createServer(options = {}) {
 
         // 6. 다운로드 모드 (download=1)
         if (isDownload) {
+          const asciiFileName = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
           const encodedFileName = encodeURIComponent(fileName).replace(/['()]/g, escape).replace(/\*/g, '%2A');
           res.writeHead(200, {
             'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
             'Content-Length': stat.size,
-            'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '_')}"; filename*=UTF-8''${encodedFileName}`,
+            'Content-Disposition': `attachment; filename="${asciiFileName || 'download'}"; filename*=UTF-8''${encodedFileName}`,
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Access-Control-Allow-Origin': '*'
           });

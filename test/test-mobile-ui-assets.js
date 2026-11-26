@@ -133,6 +133,7 @@ function run() {
   assert(js.includes('initMessageLongPress'), 'mobile.js should include initMessageLongPress');
   assert(js.includes('copyToClipboard'), 'mobile.js should include copyToClipboard helper');
   assert(js.includes('copyCodeBlock'), 'mobile.js should include copyCodeBlock handler');
+  assert(js.includes('triggerFileDownload'), 'mobile.js should include triggerFileDownload handler');
 
   // PWA checks
   const manifestPath = path.join(__dirname, '../public/manifest.json');

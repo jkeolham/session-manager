@@ -101,7 +101,8 @@ async function runAuditRegressionTests() {
     console.log('✅ /api/file Not Found test passed: Non-existent file returned 404');
 
     // 10. Test /api/file: Valid document view (JSON)
-    const testDocPath = path.resolve('./test/temp-test-doc.md');
+    const testDir = path.dirname(new URL(import.meta.url).pathname);
+    const testDocPath = path.join(testDir, 'temp-test-doc.md');
     fs.writeFileSync(testDocPath, '# Test Document\n\nHello from file viewer test!\n', 'utf-8');
     try {
       const viewRes = await fetch(`http://127.0.0.1:${PORT}/api/file?path=${encodeURIComponent('file://' + testDocPath)}`);
@@ -123,13 +124,31 @@ async function runAuditRegressionTests() {
       const downloadedText = await downloadRes.text();
       assert.strictEqual(downloadedText, '# Test Document\n\nHello from file viewer test!\n');
       console.log('✅ /api/file Document Download test passed: Attachment headers & streaming verified');
+
+      // 12. Test /api/file: Korean/Unicode filename download (RFC 6266 / RFC 5987 ERR_INVALID_CHAR regression)
+      const koreanDocPath = path.join(testDir, '테스트_한글_도마복음_기획서.md');
+      try {
+        fs.writeFileSync(koreanDocPath, '# 한글 문서 테스트\n', 'utf8');
+        const koreanDownloadRes = await fetch(`http://127.0.0.1:${PORT}/api/file?path=${encodeURIComponent(koreanDocPath)}&download=1`);
+        assert.strictEqual(koreanDownloadRes.status, 200, 'Korean filename download must return 200');
+        const kDisp = koreanDownloadRes.headers.get('content-disposition');
+        assert.ok(kDisp && kDisp.includes('attachment;'), 'Must have attachment header for Korean filename');
+        assert.ok(kDisp.includes("filename*=UTF-8''"), 'Must have RFC 5987 UTF-8 encoded filename');
+        const kText = await koreanDownloadRes.text();
+        assert.strictEqual(kText, '# 한글 문서 테스트\n');
+        console.log('✅ /api/file Korean/Unicode Filename Download test passed: RFC 6266/5987 UTF-8 verified');
+      } finally {
+        if (fs.existsSync(koreanDocPath)) {
+          fs.unlinkSync(koreanDocPath);
+        }
+      }
     } finally {
       if (fs.existsSync(testDocPath)) {
         fs.unlinkSync(testDocPath);
       }
     }
 
-    console.log('\n🎉 ALL 11 AUDIT SECURITY REGRESSION TESTS PASSED!');
+    console.log('\n🎉 ALL 12 AUDIT SECURITY REGRESSION TESTS PASSED!');
   } finally {
     server.close();
   }

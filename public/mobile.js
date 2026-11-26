@@ -3617,6 +3617,8 @@
     if (btnFileDownload) {
       btnFileDownload.href = `/api/file?path=${encodeURIComponent(cleanPath)}&download=1`;
       btnFileDownload.setAttribute('download', fileName);
+      btnFileDownload.setAttribute('target', '_blank');
+      btnFileDownload.setAttribute('rel', 'noopener noreferrer');
     }
 
     if (fileViewerBody) {
@@ -3714,6 +3716,35 @@
       });
   }
 
+  async function triggerFileDownload(url, filename) {
+    if (!url || url === '#' || url === 'about:blank') return;
+    const cleanFilename = (filename || 'download').trim();
+    showToast(`'${cleanFilename}' 다운로드를 시작합니다...`);
+
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const tempLink = document.createElement('a');
+      tempLink.href = blobUrl;
+      tempLink.download = cleanFilename;
+      tempLink.style.display = 'none';
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      setTimeout(() => {
+        document.body.removeChild(tempLink);
+        URL.revokeObjectURL(blobUrl);
+      }, 1500);
+      showToast(`'${cleanFilename}' 다운로드가 완료되었습니다.`);
+    } catch (err) {
+      console.warn('Blob download fallback to direct window.open:', err);
+      window.open(url, '_blank');
+    }
+  }
+
   function closeFileViewer() {
     if (fileViewerModal) fileViewerModal.classList.remove('open');
     if (fileViewerBackdrop) fileViewerBackdrop.classList.remove('open');
@@ -3721,6 +3752,27 @@
 
   if (btnCloseFileViewer) btnCloseFileViewer.addEventListener('click', closeFileViewer);
   if (fileViewerBackdrop) fileViewerBackdrop.addEventListener('click', closeFileViewer);
+
+  if (btnFileDownload) {
+    btnFileDownload.addEventListener('click', (e) => {
+      e.preventDefault();
+      const href = btnFileDownload.getAttribute('href');
+      const filename = btnFileDownload.getAttribute('download') || fileViewerTitle?.innerText || 'download';
+      triggerFileDownload(href, filename);
+    });
+  }
+
+  if (fileViewerModal) {
+    fileViewerModal.addEventListener('click', (e) => {
+      const dlBtn = e.target.closest('.file-download-btn');
+      if (dlBtn && dlBtn !== btnFileDownload) {
+        e.preventDefault();
+        const href = dlBtn.getAttribute('href');
+        const filename = dlBtn.getAttribute('download') || fileViewerTitle?.innerText || 'download';
+        triggerFileDownload(href, filename);
+      }
+    });
+  }
 
   // --- Pull-to-Refresh & Down-scroll at End Refresh ---
   const pullRefreshIndicator = document.getElementById('pull-refresh-indicator');
