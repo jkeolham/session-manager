@@ -1118,6 +1118,39 @@ export function createServer(options = {}) {
         return;
       }
 
+      // 5.06 GET /api/changelog — return session manager changelog & synced agy version info
+      if (req.method === 'GET' && pathname === '/api/changelog') {
+        try {
+          const pkgPath = path.join(__dirname, 'package.json');
+          const pkg = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
+          const smVer = pkg.version || '1.3.52';
+
+          const statePath = path.join(__dirname, '.agy_synced_version');
+          let agyVer = '1.5.18';
+          try {
+            if (fs.existsSync(statePath)) {
+              agyVer = (await fs.promises.readFile(statePath, 'utf8')).trim() || agyVer;
+            }
+          } catch (_) {}
+
+          const changelogPath = path.join(__dirname, 'CHANGELOG.md');
+          let changelogText = '';
+          if (fs.existsSync(changelogPath)) {
+            changelogText = await fs.promises.readFile(changelogPath, 'utf8');
+          }
+
+          sendJson(res, 200, {
+            ok: true,
+            version: smVer,
+            syncedAgyVersion: agyVer,
+            changelog: changelogText
+          });
+        } catch (err) {
+          sendError(res, 500, err.message);
+        }
+        return;
+      }
+
       // 5.1 POST /api/new — start a new Antigravity conversation inside the daemon
       if (req.method === 'POST' && pathname === '/api/new') {
         let body = '';

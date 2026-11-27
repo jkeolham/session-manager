@@ -5017,6 +5017,104 @@
     }
   }
 
+  // --- Changelog Modal ---
+  const changelogModal = document.getElementById('changelog-modal');
+  const changelogBackdrop = document.getElementById('changelog-modal-backdrop');
+  const changelogBody = document.getElementById('changelog-modal-body');
+  const btnOpenChangelog = document.getElementById('btn-open-changelog');
+  const btnCloseChangelog = document.getElementById('btn-close-changelog');
+  const smVersionText = document.getElementById('sm-version-text');
+  const agyVersionText = document.getElementById('agy-version-text');
+
+  let cachedChangelogData = null;
+
+  async function loadChangelogData(force = false) {
+    if (cachedChangelogData && !force) {
+      renderChangelogContent(cachedChangelogData);
+      return;
+    }
+    try {
+      const res = await fetch('/api/changelog');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      cachedChangelogData = data;
+
+      if (smVersionText && data.version) {
+        smVersionText.textContent = `v${data.version}`;
+      }
+      if (agyVersionText && data.syncedAgyVersion) {
+        agyVersionText.textContent = `v${data.syncedAgyVersion}`;
+      }
+
+      renderChangelogContent(data);
+    } catch (err) {
+      console.warn('Failed to load changelog:', err);
+      if (changelogBody) {
+        changelogBody.innerHTML = `<div class="empty-state">변경 이력을 불러오지 못했습니다: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+  }
+
+  function renderChangelogContent(data) {
+    if (!changelogBody) return;
+    const smVer = data.version || '1.3.52';
+    const agyVer = data.syncedAgyVersion || '1.5.18';
+    const text = data.changelog || '';
+
+    let html = `
+      <div class="changelog-meta-banner">
+        <div class="meta-left">
+          <span>🚀 Session Manager <strong>v${escapeHtml(smVer)}</strong></span>
+        </div>
+        <div class="meta-right">
+          <span>기준 agy <strong>v${escapeHtml(agyVer)}</strong></span>
+        </div>
+      </div>
+    `;
+
+    if (text) {
+      html += `<div class="turn-markdown">${renderMarkdown(text)}</div>`;
+    } else {
+      html += `<div class="empty-state">등록된 변경 이력이 없습니다.</div>`;
+    }
+
+    changelogBody.innerHTML = html;
+  }
+
+  function openChangelogModal() {
+    if (!changelogModal) return;
+    changelogModal.classList.add('open');
+    if (changelogBackdrop) changelogBackdrop.classList.add('open');
+    loadChangelogData();
+  }
+
+  function closeChangelogModal() {
+    if (!changelogModal) return;
+    changelogModal.classList.remove('open');
+    if (changelogBackdrop) changelogBackdrop.classList.remove('open');
+  }
+
+  function initChangelogModal() {
+    if (btnOpenChangelog) {
+      btnOpenChangelog.addEventListener('click', (e) => {
+        e.preventDefault();
+        openChangelogModal();
+      });
+    }
+    if (btnCloseChangelog) {
+      btnCloseChangelog.addEventListener('click', closeChangelogModal);
+    }
+    if (changelogBackdrop) {
+      changelogBackdrop.addEventListener('click', closeChangelogModal);
+    }
+    const handle = changelogModal ? changelogModal.querySelector('.sheet-drag-handle') : null;
+    if (handle) {
+      handle.addEventListener('click', closeChangelogModal);
+    }
+    // 초기 로드 시 백그라운드로 버전 정보 사전 캐시
+    loadChangelogData();
+  }
+
   // --- Initial Load ---
   initModelPicker();
   initVoiceRecognition();
@@ -5025,6 +5123,7 @@
   initMessageLongPress();
   initDrawerComposer();
   initAutomationsDashboard();
+  initChangelogModal();
 
   const currentSessionTitleEl = document.getElementById('current-session-title');
   if (currentSessionTitleEl) {

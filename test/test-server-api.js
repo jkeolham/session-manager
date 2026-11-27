@@ -54,6 +54,15 @@ async function run() {
     assert(Array.isArray(usageData.groups), 'usageData.groups should be an array');
     assert(usageData.groups.length >= 1, 'usageData.groups should have at least 1 group');
 
+    // 1d. GET /api/changelog
+    const resChangelog = await request('/api/changelog');
+    assert.strictEqual(resChangelog.status, 200, 'GET /api/changelog should return 200');
+    const clData = JSON.parse(resChangelog.body);
+    assert(clData.ok, 'clData.ok should be true');
+    assert(clData.version, 'clData should have version');
+    assert(clData.syncedAgyVersion, 'clData should have syncedAgyVersion');
+    assert(clData.changelog.includes('Session Manager Changelog'), 'clData.changelog should contain header');
+
     // 2. GET /api/transcript with missing query params -> 400
     const resInvalid = await request('/api/transcript');
     assert.strictEqual(resInvalid.status, 400, 'GET /api/transcript without params should return 400');

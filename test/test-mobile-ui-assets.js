@@ -45,6 +45,9 @@ function run() {
   assert(html.includes('reply-preview-bar'), 'index.html must include reply-preview-bar');
   assert(html.includes('message-context-menu'), 'index.html must include message-context-menu');
   assert(html.includes('message-context-backdrop'), 'index.html must include message-context-backdrop');
+  assert(html.includes('welcome-version-badge-group'), 'index.html must include welcome-version-badge-group');
+  assert(html.includes('btn-open-changelog'), 'index.html must include btn-open-changelog');
+  assert(html.includes('changelog-modal'), 'index.html must include changelog-modal');
 
   const css = fs.readFileSync(cssPath, 'utf8');
   assert(css.includes('--safe-area-inset') || css.includes('env(safe-area-inset'), 'mobile.css should handle safe area');
@@ -88,10 +91,15 @@ function run() {
   assert(css.includes('question-option-item.selected'), 'mobile.css should style selected question option item');
   assert(css.includes('question-section'), 'mobile.css should style multi-question sections');
   assert(css.includes('question-multi-badge'), 'mobile.css should style multi-choice badges');
+  assert(css.includes('welcome-version-badge-group'), 'mobile.css should style welcome-version-badge-group');
+  assert(css.includes('btn-changelog'), 'mobile.css should style btn-changelog');
+  assert(css.includes('changelog-modal'), 'mobile.css should style changelog-modal');
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('renderQuestionCardHtml'), 'mobile.js should include renderQuestionCardHtml');
   assert(js.includes('syncQuestionOptionStates'), 'mobile.js should include syncQuestionOptionStates');
+  assert(js.includes('initChangelogModal'), 'mobile.js should include initChangelogModal');
+  assert(js.includes('loadChangelogData'), 'mobile.js should include loadChangelogData');
   assert(js.includes('initSessionActionMenu'), 'mobile.js should include initSessionActionMenu');
   assert(js.includes('openSessionActionMenu'), 'mobile.js should include openSessionActionMenu');
   assert(js.includes('closeSessionActionMenu'), 'mobile.js should include closeSessionActionMenu');
