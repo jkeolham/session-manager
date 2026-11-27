@@ -85,9 +85,13 @@ function run() {
   assert(css.includes('attach-link-disclosure'), 'mobile.css should style attach-link-disclosure');
   assert(css.includes('question-card'), 'mobile.css should style question-card');
   assert(css.includes('question-btn-submit'), 'mobile.css should style question-btn-submit');
+  assert(css.includes('question-option-item.selected'), 'mobile.css should style selected question option item');
+  assert(css.includes('question-section'), 'mobile.css should style multi-question sections');
+  assert(css.includes('question-multi-badge'), 'mobile.css should style multi-choice badges');
 
   const js = fs.readFileSync(jsPath, 'utf8');
   assert(js.includes('renderQuestionCardHtml'), 'mobile.js should include renderQuestionCardHtml');
+  assert(js.includes('syncQuestionOptionStates'), 'mobile.js should include syncQuestionOptionStates');
   assert(js.includes('initSessionActionMenu'), 'mobile.js should include initSessionActionMenu');
   assert(js.includes('openSessionActionMenu'), 'mobile.js should include openSessionActionMenu');
   assert(js.includes('closeSessionActionMenu'), 'mobile.js should include closeSessionActionMenu');

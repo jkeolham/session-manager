@@ -173,6 +173,42 @@ assert.strictEqual(answeredResult.turns[0].questionData.isPending, false, 'Quest
 assert.strictEqual(answeredResult.turns[0].questionData.isAnswered, true);
 assert.strictEqual(answeredResult.turns[0].questionData.answer, '옵션 A');
 
+// 7.1 Test default_api:ask_question and multi-question support
+const multiQuestionJsonl = [
+  JSON.stringify({
+    step_index: 20,
+    source: "MODEL",
+    type: "PLANNER_RESPONSE",
+    status: "DONE",
+    tool_calls: [{
+      name: "default_api:ask_question",
+      args: {
+        questions: [
+          {
+            question: "첫 번째 질문입니다?",
+            is_multi_select: false,
+            options: ["(추천) 옵션 1", "옵션 2"]
+          },
+          {
+            question: "두 번째 질문입니다?",
+            is_multi_select: true,
+            options: ["항목 A", "항목 B", "항목 C"]
+          }
+        ]
+      }
+    }]
+  })
+].join('\n');
+
+const multiQResult = parseTranscriptString(multiQuestionJsonl, 10);
+assert.strictEqual(multiQResult.turns.length, 1);
+assert(multiQResult.turns[0].questionData, 'Turn should have questionData from default_api:ask_question');
+assert.strictEqual(multiQResult.turns[0].questionData.isPending, true);
+assert.strictEqual(multiQResult.turns[0].questionData.questions.length, 2);
+assert.strictEqual(multiQResult.turns[0].questionData.questions[0].question, '첫 번째 질문입니다?');
+assert.strictEqual(multiQResult.turns[0].questionData.questions[1].is_multi_select, true);
+assert.strictEqual(multiQResult.turns[0].questionData.questions[1].options.length, 3);
+
 // 8. Test groupTurnsForDisplay merging preserves questionData
 function simulateGroupTurnsForDisplay(rawTurns) {
   const grouped = [];

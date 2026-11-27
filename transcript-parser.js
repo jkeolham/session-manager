@@ -52,10 +52,17 @@ function extractUserAttachments(rawText) {
 }
 
 function extractQuestionData(toolCalls, subsequentItems) {
-  const askCall = toolCalls.find(tc => tc.name === 'ask_question');
+  const askCall = toolCalls.find(tc => {
+    const n = tc.name || tc.tool_name || '';
+    return n === 'ask_question' || n.endsWith(':ask_question') || n.endsWith('/ask_question');
+  });
   if (!askCall) return null;
 
-  let rawQuestions = askCall.args?.questions;
+  let args = askCall.args;
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args); } catch (e) {}
+  }
+  let rawQuestions = args?.questions;
   if (typeof rawQuestions === 'string') {
     try {
       rawQuestions = JSON.parse(rawQuestions);
@@ -187,7 +194,7 @@ function parseTranscriptString(rawText, limit = 50, beforeIndex = null) {
                 label = 'View ' + parts[parts.length - 1];
               } else if (toolName === 'search_web' && args.query) {
                 label = 'Search web: ' + cleanString(args.query);
-              } else if (toolName === 'ask_question') {
+              } else if (toolName === 'ask_question' || toolName.endsWith(':ask_question') || toolName.endsWith('/ask_question')) {
                 label = '질문 (선택지 제시)';
               } else {
                 label = toolName;

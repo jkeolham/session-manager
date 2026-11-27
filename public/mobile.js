@@ -312,6 +312,12 @@
       const trimmed = expr.trim();
       // 단순 금액 기호 ($10, $50.00 등)는 수식 치환 제외
       if (/^\d+(?:\.\d+)?$/.test(trimmed)) return m;
+      // 셸 변수 및 URL/경로 패턴 ($var/..., $host:$port 등)은 수식 치환 제외
+      if (/^[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z0-9_\-\.]+)+$/.test(trimmed)) return m;
+      if (/^[A-Za-z_][A-Za-z0-9_]*:[0-9]+(?:\/[A-Za-z0-9_\-\.]+)*$/.test(trimmed)) return m;
+      if (expr.includes('://') || (expr.includes('/') && !expr.includes('\\'))) {
+        return m;
+      }
 
       const idx = mathTokens.length;
       const html = renderMathExpression(trimmed, false);
@@ -413,7 +419,8 @@
     const codeBlock = btn.closest('.code-block');
     const codeEl = codeBlock ? codeBlock.querySelector('pre code') : null;
     if (!codeEl) return;
-    const text = (codeEl.innerText || codeEl.textContent || '').trim();
+    // textContent 우선 사용하여 브라우저 innerText의 연속 빈 줄 축소 버그 방지 및 원본 공백/들여쓰기 보존
+    const text = (codeEl.textContent || codeEl.innerText || '').replace(/^\n+|\s+$/g, '');
     if (!text) return;
 
     const ok = await copyToClipboard(text);
@@ -1350,22 +1357,30 @@
     if (!qData || !Array.isArray(qData.questions) || qData.questions.length === 0) return '';
     const isPending = !!qData.isPending;
     const isAnswered = !!qData.isAnswered;
+    const qCount = qData.questions.length;
 
-    return qData.questions.map((q, qIdx) => {
+    const sectionsHtml = qData.questions.map((q, qIdx) => {
       const isMulti = !!q.is_multi_select;
       const inputType = isMulti ? 'checkbox' : 'radio';
       const inputName = `q_${turnIndex || 'latest'}_${qIdx}`;
 
+      // 추천 옵션 인덱스 탐색
+      const recIdx = (q.options || []).findIndex(opt => {
+        const t = typeof opt === 'object' && opt !== null ? (opt.text || '') : String(opt);
+        return t.includes('(Recommended)') || t.includes('(추천)');
+      });
+      const defaultCheckedIdx = recIdx >= 0 ? recIdx : 0;
+
       const optionsHtml = (q.options || []).map((opt, optIdx) => {
         const optText = typeof opt === 'object' && opt !== null ? (opt.text || '') : String(opt);
         const optId = typeof opt === 'object' && opt !== null ? String(opt.id || optIdx + 1) : String(optIdx + 1);
-        const isRec = optText.includes('(Recommended)');
-        const cleanOpt = optText.replace(/^\(Recommended\)\s*/i, '').trim();
-        // 기본 선택: 추천 옵션이거나 첫 번째 옵션
-        const isChecked = isPending && (isRec || optIdx === 0);
+        const isRec = optText.includes('(Recommended)') || optText.includes('(추천)');
+        const cleanOpt = optText.replace(/^\((?:Recommended|추천)\)\s*/i, '').trim();
+        // 단일 선택의 경우 정확히 하나만 기본 체크
+        const isChecked = isPending && (optIdx === defaultCheckedIdx);
 
         return `
-          <label class="question-option-item ${isRec ? 'recommended' : ''}">
+          <label class="question-option-item ${isChecked ? 'selected' : ''} ${isRec ? 'recommended' : ''}" data-q-idx="${qIdx}" data-opt-id="${escapeHtml(optId)}">
             <input type="${inputType}" name="${inputName}" value="${escapeHtml(optText)}" data-opt-id="${escapeHtml(optId)}" ${isChecked ? 'checked' : ''} ${!isPending ? 'disabled' : ''}>
             <div class="option-content">
               <span class="option-num">${optIdx + 1}</span>
@@ -1379,7 +1394,7 @@
       }).join('');
 
       const otherOptionHtml = `
-        <label class="question-option-item other-option">
+        <label class="question-option-item other-option" data-q-idx="${qIdx}" data-opt-id="__OTHER__">
           <input type="${inputType}" name="${inputName}" value="__OTHER__" data-opt-id="__OTHER__" ${!isPending ? 'disabled' : ''}>
           <div class="option-content">
             <span class="option-num">${(q.options || []).length + 1}</span>
@@ -1392,38 +1407,88 @@
       `;
 
       return `
-        <div class="question-card ${isPending ? 'pending' : 'answered'}" data-turn-index="${turnIndex || ''}" data-question-text="${escapeHtml(q.question)}" data-multi="${isMulti ? 'true' : 'false'}">
-          <div class="question-card-header">
-            <div class="question-header-left">
-              <span class="question-badge-icon">💬</span>
-              <span class="question-title">${escapeHtml(q.question)}</span>
+        <div class="question-section" data-q-idx="${qIdx}" data-question-text="${escapeHtml(q.question)}" data-multi="${isMulti ? 'true' : 'false'}">
+          ${qCount > 1 ? `
+            <div class="question-sub-title">
+              <span class="question-sub-num">Q${qIdx + 1}.</span>
+              <span class="question-sub-text">${escapeHtml(q.question)}</span>
+              ${isMulti ? '<span class="question-multi-badge">복수 선택 가능</span>' : ''}
             </div>
-            ${isPending ? '<span class="question-status-badge">선택 필요</span>' : '<span class="question-status-badge done">완료</span>'}
-          </div>
+          ` : (isMulti ? '<div class="question-multi-badge">복수 선택 가능</div>' : '')}
 
           <div class="question-options-list">
             ${optionsHtml}
             ${otherOptionHtml}
           </div>
-
-          ${isPending ? `
-            <div class="question-card-footer">
-              <button type="button" class="question-btn-skip">Skip</button>
-              <button type="button" class="question-btn-submit">
-                <span>Submit</span>
-                <span class="btn-enter-icon">↵</span>
-              </button>
-            </div>
-          ` : `
-            <div class="question-answered-box">
-              <span class="answered-check-icon">✓</span>
-              <span class="answered-label">제출된 답변:</span>
-              <span class="answered-value">${escapeHtml(qData.answer || '선택 완료')}</span>
-            </div>
-          `}
         </div>
       `;
     }).join('');
+
+    const mainTitle = qCount > 1 ? `질문 (${qCount}개)` : (qData.questions[0]?.question || '질문');
+
+    return `
+      <div class="question-card ${isPending ? 'pending' : 'answered'}" data-turn-index="${turnIndex || ''}" data-questions-count="${qCount}">
+        <div class="question-card-header">
+          <div class="question-header-left">
+            <span class="question-badge-icon">❓</span>
+            <span class="question-main-title">${escapeHtml(mainTitle)}</span>
+          </div>
+          ${isPending ? '<span class="question-status-badge pending">선택 필요</span>' : '<span class="question-status-badge done">완료</span>'}
+        </div>
+
+        <div class="question-sections-wrap">
+          ${sectionsHtml}
+        </div>
+
+        ${isPending ? `
+          <div class="question-card-footer">
+            <button type="button" class="question-btn-skip">건너뛰기 (Skip)</button>
+            <button type="button" class="question-btn-submit">
+              <span>답변 제출 (Submit)</span>
+              <span class="btn-enter-icon">↵</span>
+            </button>
+          </div>
+        ` : `
+          <div class="question-answered-box">
+            <span class="answered-check-icon">✓</span>
+            <span class="answered-label">제출된 답변:</span>
+            <span class="answered-value">${escapeHtml(qData.answer || '선택 완료')}</span>
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  function syncQuestionOptionStates(card) {
+    if (!card) return;
+    const items = card.querySelectorAll('.question-option-item');
+    items.forEach(item => {
+      const inp = item.querySelector('input');
+      if (inp) {
+        if (inp.checked) {
+          item.classList.add('selected');
+        } else {
+          item.classList.remove('selected');
+        }
+      }
+    });
+
+    const sections = card.querySelectorAll('.question-section');
+    sections.forEach(sec => {
+      const otherInp = sec.querySelector('input[value="__OTHER__"]');
+      const otherWrap = sec.querySelector('.question-other-input-wrap');
+      if (otherInp && otherWrap) {
+        if (otherInp.checked) {
+          otherWrap.classList.remove('hidden');
+          const txt = otherWrap.querySelector('.question-other-input');
+          if (txt && document.activeElement !== txt) {
+            txt.focus();
+          }
+        } else {
+          otherWrap.classList.add('hidden');
+        }
+      }
+    });
   }
 
   function markQuestionCardAnswered(card, answerText) {
@@ -3324,6 +3389,26 @@
       return;
     }
 
+    // 3.5 Question Option Item click/tap handler (ensures instant visual & input toggle on mobile)
+    const optionItem = e.target.closest('.question-option-item');
+    if (optionItem) {
+      const card = optionItem.closest('.question-card');
+      if (card && card.classList.contains('pending')) {
+        const input = optionItem.querySelector('input');
+        if (input && !input.disabled) {
+          if (e.target !== input) {
+            if (input.type === 'radio') {
+              input.checked = true;
+            } else if (input.type === 'checkbox') {
+              input.checked = !input.checked;
+            }
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          syncQuestionOptionStates(card);
+        }
+      }
+    }
+
     // 4. Question interactive Submit button
     const submitBtn = e.target.closest('.question-btn-submit');
     if (submitBtn) {
@@ -3331,40 +3416,56 @@
       const card = submitBtn.closest('.question-card');
       if (!card) return;
 
-      const isMulti = card.getAttribute('data-multi') === 'true';
-      const inputs = Array.from(card.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked'));
+      const sections = Array.from(card.querySelectorAll('.question-section'));
+      if (sections.length === 0) return;
 
-      if (inputs.length === 0) {
-        alert('선택지를 선택하거나 답변을 직접 입력해주세요.');
-        return;
-      }
+      const responses = [];
+      const summaryTexts = [];
 
-      const selectedTexts = [];
-      const selectedOptionIds = [];
-      let writeInResponse = '';
+      for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+        const sec = sections[sIdx];
+        const qText = sec.getAttribute('data-question-text') || '';
+        const checkedInputs = Array.from(sec.querySelectorAll('input:checked'));
 
-      for (const inp of inputs) {
-        if (inp.value === '__OTHER__') {
-          const otherInput = card.querySelector('.question-other-input');
-          const customText = otherInput?.value.trim();
-          if (!customText) {
-            alert('직접 입력 옵션을 선택하셨습니다. 답변 내용을 입력해주세요.');
-            otherInput?.focus();
-            return;
-          }
-          selectedTexts.push(customText);
-          writeInResponse = customText;
-        } else {
-          selectedTexts.push(inp.value);
-          const optId = inp.getAttribute('data-opt-id') || inp.value;
-          selectedOptionIds.push(optId);
+        if (checkedInputs.length === 0) {
+          alert(`질문 ${sIdx + 1}의 선택지를 선택하거나 답변을 직접 입력해주세요.`);
+          sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
         }
+
+        const selectedOptionIds = [];
+        const selectedTexts = [];
+        let writeInResponse = '';
+
+        for (const inp of checkedInputs) {
+          if (inp.value === '__OTHER__') {
+            const otherInput = sec.querySelector('.question-other-input');
+            const customText = otherInput?.value.trim();
+            if (!customText) {
+              alert(`질문 ${sIdx + 1}의 직접 입력란에 내용을 작성해주세요.`);
+              otherInput?.focus();
+              return;
+            }
+            selectedTexts.push(customText);
+            writeInResponse = customText;
+          } else {
+            selectedTexts.push(inp.value);
+            const optId = inp.getAttribute('data-opt-id') || inp.value;
+            selectedOptionIds.push(optId);
+          }
+        }
+
+        responses.push({
+          question: qText,
+          selectedOptionIds,
+          writeInResponse,
+          skipped: false
+        });
+
+        summaryTexts.push(sections.length > 1 ? `Q${sIdx + 1}: ${selectedTexts.join(', ')}` : selectedTexts.join(', '));
       }
 
-      const answerText = isMulti ? `A1: ${selectedTexts.join(', ')}` : `A1: ${selectedTexts[0]}`;
-      const qText = card.getAttribute('data-question-text') || '';
       const turnIndex = Number(card.getAttribute('data-turn-index')) || null;
-
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span>전송 중...</span>';
 
@@ -3380,37 +3481,31 @@
               cid: targetCid,
               session: currentSession.name,
               stepIndex: turnIndex,
-              responses: [
-                {
-                  question: qText,
-                  selectedOptionIds: selectedOptionIds,
-                  writeInResponse: writeInResponse,
-                  skipped: false
-                }
-              ],
+              responses: responses,
               cancelled: false
             })
           });
           const json = await res.json();
           if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
           showToast('답변이 성공적으로 전송되었습니다.');
-          markQuestionCardAnswered(card, selectedTexts.join(', '));
+          markQuestionCardAnswered(card, summaryTexts.join('\n'));
         } catch (err) {
           console.error('Failed to submit question via RPC:', err);
           alert(`전송 중 오류 발생: ${err.message}`);
           submitBtn.disabled = false;
-          submitBtn.innerHTML = '<span>Submit</span><span class="btn-enter-icon">↵</span>';
+          submitBtn.innerHTML = '<span>답변 제출 (Submit)</span><span class="btn-enter-icon">↵</span>';
         }
       } else {
         try {
-          await executeDirectSend(answerText);
+          const fallbackText = summaryTexts.map((st, i) => `A${i + 1}: ${st}`).join('\n');
+          await executeDirectSend(fallbackText);
           showToast('답변이 전송되었습니다.');
-          markQuestionCardAnswered(card, answerText);
+          markQuestionCardAnswered(card, summaryTexts.join('\n'));
         } catch (err) {
           console.error('Failed to send question answer:', err);
           alert(`전송 중 오류 발생: ${err.message}`);
           submitBtn.disabled = false;
-          submitBtn.innerHTML = '<span>Submit</span><span class="btn-enter-icon">↵</span>';
+          submitBtn.innerHTML = '<span>답변 제출 (Submit)</span><span class="btn-enter-icon">↵</span>';
         }
       }
       return;
@@ -3423,12 +3518,19 @@
       const card = skipBtn.closest('.question-card');
       if (!card) return;
 
+      const sections = Array.from(card.querySelectorAll('.question-section'));
+      const responses = sections.map((sec) => ({
+        question: sec.getAttribute('data-question-text') || '',
+        selectedOptionIds: [],
+        writeInResponse: '',
+        skipped: true
+      }));
+
       skipBtn.disabled = true;
       skipBtn.innerText = '건너뛰는 중...';
 
       const isDaemon = currentSession && (currentSession.cid || (currentSession.name && (currentSession.name.startsWith('rc_') || currentSession.name.startsWith('agy_'))));
       const targetCid = currentSession?.cid || (currentSession?.name ? currentSession.name.replace(/^(rc_|agy_)/, '') : '');
-      const qText = card.getAttribute('data-question-text') || '';
       const turnIndex = Number(card.getAttribute('data-turn-index')) || null;
 
       if (isDaemon && targetCid) {
@@ -3440,14 +3542,7 @@
               cid: targetCid,
               session: currentSession.name,
               stepIndex: turnIndex,
-              responses: [
-                {
-                  question: qText,
-                  selectedOptionIds: [],
-                  writeInResponse: '',
-                  skipped: true
-                }
-              ],
+              responses: responses,
               cancelled: false
             })
           });
@@ -3459,7 +3554,7 @@
           console.error('Failed to skip question via RPC:', err);
           alert(`Skip 처리 중 오류 발생: ${err.message}`);
           skipBtn.disabled = false;
-          skipBtn.innerText = 'Skip';
+          skipBtn.innerText = '건너뛰기 (Skip)';
         }
       } else {
         try {
@@ -3469,7 +3564,7 @@
         } catch (err) {
           console.error('Failed to skip question:', err);
           skipBtn.disabled = false;
-          skipBtn.innerText = 'Skip';
+          skipBtn.innerText = '건너뛰기 (Skip)';
         }
       }
       return;
@@ -3481,18 +3576,8 @@
     const input = e.target;
     if (!input.matches('.question-option-item input')) return;
     const card = input.closest('.question-card');
-    if (!card) return;
-
-    const otherInputWrap = card.querySelector('.question-other-input-wrap');
-    const otherRadio = card.querySelector('input[value="__OTHER__"]');
-    if (otherInputWrap && otherRadio) {
-      if (otherRadio.checked) {
-        otherInputWrap.classList.remove('hidden');
-        const textInp = otherInputWrap.querySelector('.question-other-input');
-        if (textInp) textInp.focus();
-      } else {
-        otherInputWrap.classList.add('hidden');
-      }
+    if (card) {
+      syncQuestionOptionStates(card);
     }
   });
 
