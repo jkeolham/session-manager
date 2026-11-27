@@ -1,5 +1,28 @@
 # Session Manager Changelog
 
+## [v1.3.54] - 2026-11-27
+### ⚡ 기준 agy 버전: v1.5.18
+- **Changelog 모달 숨김 버그 수정**:
+  - 홈 화면(Welcome Dashboard) 진입 시 Changelog 팝업이 바닥에 정적으로 펼쳐져 노출되던 버그 해결
+  - `.modal-sheet`에 `transform: translateY(100%)`, `visibility: hidden`, `pointer-events: none` 기본 적용
+  - 상단 `[Changelog]` 버튼 클릭 시에만 부드러운 슬라이드 업 바텀시트로 노출되며, 닫기 버튼 및 배경 터치 시 완벽히 수납
+- **대화창 슬래시(`/`) 커맨드 Action Autocomplete 팝업 탑재 (agy 대시보드 동기화)**:
+  - 대화창(`composerInput`)에서 `/`를 입력할 때 사용 가능한 액션 및 슬래시 커맨드 목록이 입력창 상단에 인터랙티브 드롭다운으로 표시
+  - 실시간 검색어 필터링(대소문자 무관 커맨드/라벨/설명 부분 매칭)
+  - 키보드 위/아래 방향키(`↑`/`↓`) 네비게이션, `Enter`/`Tab` 자동완성, `Escape` 닫기
+  - 한글 IME 조합(`isComposing`) 충돌 방지 및 모바일 터치 최적화
+  - 주요 지원 커맨드:
+    - 태스크 및 기획: `/goal`, `/plan`, `/compact`, `/browser`, `/schedule`, `/grill-me`, `/teamwork-preview`, `/learn`, `/boost`
+    - 대시보드 및 모달 연동: `/model`, `/usage`, `/diff`, `/automations`, `/changelog`
+    - 유틸리티: `/help`, `/clear`
+
+## [v1.3.53] - 2026-11-27
+### ⚡ 기준 agy 버전: v1.5.18
+- **홈 화면 버전 배지 및 Changelog 팝업 모달 탑재**:
+  - 세션 매니저 현재 버전 및 기준 agy 동기화 버전 배지 표시
+  - `[Changelog]` 버튼으로 릴리즈 노트 확인 지원
+  - 백엔드 `GET /api/changelog` 엔드포인트 제공
+
 ## [v1.3.52] - 2026-11-27
 ### ⚡ 기준 agy 버전: v1.5.18
 - **질문 선택지(Ask Question) 모바일 탭 인터랙션 전면 개편**:

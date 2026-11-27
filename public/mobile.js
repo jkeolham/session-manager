@@ -5115,6 +5115,335 @@
     loadChangelogData();
   }
 
+  // --- Slash Command Action Autocomplete (agy Remote Control & CLI style) ---
+  const slashActionMenu = document.getElementById('slash-action-menu');
+  const slashMenuList = document.getElementById('slash-menu-list');
+
+  const SLASH_ACTIONS = [
+    {
+      cmd: '/goal',
+      label: '장시간 자율 완결 태스크',
+      desc: '과업이 완료될 때까지 에이전트가 중단 없이 깊이 있게 자율 수행',
+      icon: '🎯',
+      badge: 'Slash',
+      snippet: '/goal '
+    },
+    {
+      cmd: '/plan',
+      label: '단계별 구현 계획 수립',
+      desc: '코드 변경 전 요구사항 분석 및 구조적 실행 계획(Spec & Plan) 작성',
+      icon: '📋',
+      badge: 'Superpower',
+      snippet: '/plan '
+    },
+    {
+      cmd: '/compact',
+      label: '대화 컨텍스트 압축',
+      desc: '대화 내용을 핵심만 요약 압축하여 컨텍스트 윈도우 여유 확보',
+      icon: '🗜️',
+      badge: 'Context',
+      snippet: '/compact'
+    },
+    {
+      cmd: '/browser',
+      label: '웹 브라우징 및 조사',
+      desc: '웹 페이지를 직접 탐색하고 웹 기반 애플리케이션 상호작용 수행',
+      icon: '🌐',
+      badge: 'Browser',
+      snippet: '/browser '
+    },
+    {
+      cmd: '/schedule',
+      label: '스케줄 및 타이머 예약',
+      desc: '일회성 알림 타이머 또는 정기 반복(cron) 스케줄 등록 실행',
+      icon: '⏰',
+      badge: 'Schedule',
+      snippet: '/schedule '
+    },
+    {
+      cmd: '/grill-me',
+      label: '인터랙티브 인터뷰 (설계 정렬)',
+      desc: '심층 질문을 통해 모호한 요구사항 및 아키텍처 설계를 정밀 조율',
+      icon: '🔥',
+      badge: 'Superpower',
+      snippet: '/grill-me '
+    },
+    {
+      cmd: '/teamwork-preview',
+      label: '다중 자율 에이전트 협업',
+      desc: '대규모 복합 프로젝트를 여러 자율 에이전트 팀으로 분업 실행',
+      icon: '👥',
+      badge: 'Multi-Agent',
+      snippet: '/teamwork-preview '
+    },
+    {
+      cmd: '/learn',
+      label: '피드백 및 행동 양식 지속 학습',
+      desc: '사용자 교정 및 선호 사항을 영구 규칙/지식으로 저장하여 반영',
+      icon: '🧠',
+      badge: 'Knowledge',
+      snippet: '/learn '
+    },
+    {
+      cmd: '/boost',
+      label: '심층 추론 및 엄격 검증',
+      desc: '복잡한 코딩/리서치 과제를 다각도 비판적 분석 및 엄격한 검증으로 해결',
+      icon: '🚀',
+      badge: 'Boost',
+      snippet: '/boost '
+    },
+    {
+      cmd: '/model',
+      label: '모델 및 추론 강도(Effort) 설정',
+      desc: 'Gemini/Claude 모델 변경 및 Thinking Effort (high/medium/low) 설정',
+      icon: '🤖',
+      badge: 'Modal',
+      action: () => openModelPicker()
+    },
+    {
+      cmd: '/usage',
+      label: '모델 쿼터 및 사용량 확인',
+      desc: '5시간/주간 모델 사용량, 남은 쿼터 및 리셋 카운트다운 조회',
+      icon: '📊',
+      badge: 'Modal',
+      action: () => openUsageModal()
+    },
+    {
+      cmd: '/diff',
+      label: 'Git 코드 변경 사항(Diff) 검토',
+      desc: '현재 세션 및 저장소의 코드 변경 내역을 사이드바이사이드로 검토',
+      icon: '🔍',
+      badge: 'Modal',
+      action: () => openReviewModal()
+    },
+    {
+      cmd: '/automations',
+      label: 'N100 백그라운드 자동화 점검',
+      desc: '서버의 cron 및 systemd 자동화 작업들의 상태 모니터링',
+      icon: '⚡',
+      badge: 'Modal',
+      action: () => openAutomationsModal()
+    },
+    {
+      cmd: '/changelog',
+      label: '적용된 변경 이력 (Changelog)',
+      desc: '세션 매니저 및 agy 대시보드 동기화 릴리즈 노트 확인',
+      icon: '📋',
+      badge: 'Modal',
+      action: () => openChangelogModal()
+    },
+    {
+      cmd: '/help',
+      label: '도움말 및 기능 안내',
+      desc: '사용 가능한 슬래시 커맨드, 단축키 및 기능 가이드',
+      icon: '💡',
+      badge: 'Guide',
+      snippet: '/help'
+    },
+    {
+      cmd: '/clear',
+      label: '대화 화면 정리',
+      desc: '현재 뷰의 메시지 목록을 깔끔하게 리셋 (데이터는 보존됨)',
+      icon: '🧹',
+      badge: 'View',
+      snippet: '/clear'
+    }
+  ];
+
+  let activeSlashIndex = 0;
+  let filteredSlashActions = [...SLASH_ACTIONS];
+
+  function getSlashTriggerInfo() {
+    if (!composerInput) return null;
+    const text = composerInput.value;
+    const selEnd = composerInput.selectionEnd;
+    const textBeforeCursor = text.slice(0, selEnd);
+    // 문장의 시작이거나 공백 바로 뒤에 있는 / 로 시작하는 단어 매칭
+    const match = /(?:^|\s)\/([a-zA-Z0-9_\-]*)$/.exec(textBeforeCursor);
+    if (!match) return null;
+    return {
+      query: match[1].toLowerCase(),
+      matchStart: textBeforeCursor.length - match[1].length - 1,
+      matchEnd: selEnd
+    };
+  }
+
+  function renderSlashMenu(items) {
+    if (!slashMenuList) return;
+    if (!items || items.length === 0) {
+      slashMenuList.innerHTML = '<div class="slash-menu-empty">일치하는 슬래시 액션이 없습니다.</div>';
+      return;
+    }
+
+    const html = items.map((item, idx) => {
+      const isSelected = idx === activeSlashIndex;
+      return `
+        <div class="slash-menu-item ${isSelected ? 'active' : ''}" data-index="${idx}" role="option" aria-selected="${isSelected}">
+          <span class="slash-item-icon">${escapeHtml(item.icon)}</span>
+          <div class="slash-item-content">
+            <div class="slash-item-top">
+              <span class="slash-item-cmd">${escapeHtml(item.cmd)}</span>
+              <span class="slash-item-label">${escapeHtml(item.label)}</span>
+            </div>
+            <div class="slash-item-desc">${escapeHtml(item.desc)}</div>
+          </div>
+          <span class="slash-item-badge">${escapeHtml(item.badge)}</span>
+        </div>
+      `;
+    }).join('');
+
+    slashMenuList.innerHTML = html;
+    updateSlashScroll();
+  }
+
+  function updateSlashActiveItem() {
+    if (!slashMenuList) return;
+    const items = slashMenuList.querySelectorAll('.slash-menu-item');
+    items.forEach((el, idx) => {
+      const isSelected = idx === activeSlashIndex;
+      el.classList.toggle('active', isSelected);
+      el.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    });
+    updateSlashScroll();
+  }
+
+  function updateSlashScroll() {
+    if (!slashMenuList) return;
+    const activeEl = slashMenuList.querySelector('.slash-menu-item.active');
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function showSlashMenu() {
+    if (!slashActionMenu) return;
+    slashActionMenu.classList.remove('hidden');
+  }
+
+  function hideSlashMenu() {
+    if (!slashActionMenu) return;
+    slashActionMenu.classList.add('hidden');
+    activeSlashIndex = 0;
+  }
+
+  function applySlashAction(item) {
+    if (!item || !composerInput) return;
+    const trigger = getSlashTriggerInfo();
+
+    if (item.action) {
+      if (trigger) {
+        const before = composerInput.value.slice(0, trigger.matchStart);
+        const after = composerInput.value.slice(trigger.matchEnd);
+        composerInput.value = (before + after).trim();
+      }
+      hideSlashMenu();
+      composerInput.focus();
+      item.action();
+      return;
+    }
+
+    const snippet = item.snippet || (item.cmd + ' ');
+    if (trigger) {
+      const before = composerInput.value.slice(0, trigger.matchStart);
+      const after = composerInput.value.slice(trigger.matchEnd);
+      composerInput.value = before + snippet + after;
+      const newPos = before.length + snippet.length;
+      composerInput.setSelectionRange(newPos, newPos);
+    } else {
+      composerInput.value = snippet;
+    }
+
+    composerInput.style.height = 'auto';
+    composerInput.style.height = `${Math.min(composerInput.scrollHeight, 160)}px`;
+    updateSendButtonState();
+    composerInput.focus();
+    hideSlashMenu();
+  }
+
+  function handleSlashInput() {
+    const trigger = getSlashTriggerInfo();
+    if (!trigger) {
+      hideSlashMenu();
+      return;
+    }
+
+    const q = trigger.query;
+    if (!q) {
+      filteredSlashActions = [...SLASH_ACTIONS];
+    } else {
+      filteredSlashActions = SLASH_ACTIONS.filter(item => {
+        const cmdClean = item.cmd.replace(/^\//, '').toLowerCase();
+        return cmdClean.includes(q) ||
+               item.label.toLowerCase().includes(q) ||
+               item.desc.toLowerCase().includes(q);
+      });
+    }
+
+    activeSlashIndex = 0;
+    renderSlashMenu(filteredSlashActions);
+    showSlashMenu();
+  }
+
+  function initSlashActionMenu() {
+    if (!composerInput || !slashActionMenu || !slashMenuList) return;
+
+    composerInput.addEventListener('input', handleSlashInput);
+
+    composerInput.addEventListener('keydown', (e) => {
+      if (slashActionMenu.classList.contains('hidden')) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (filteredSlashActions.length > 0) {
+          activeSlashIndex = (activeSlashIndex + 1) % filteredSlashActions.length;
+          updateSlashActiveItem();
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (filteredSlashActions.length > 0) {
+          activeSlashIndex = (activeSlashIndex - 1 + filteredSlashActions.length) % filteredSlashActions.length;
+          updateSlashActiveItem();
+        }
+        return;
+      }
+
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        if (isComposing || e.isComposing || e.keyCode === 229) return;
+        if (filteredSlashActions.length > 0 && activeSlashIndex >= 0 && activeSlashIndex < filteredSlashActions.length) {
+          e.preventDefault();
+          e.stopPropagation();
+          applySlashAction(filteredSlashActions[activeSlashIndex]);
+          return;
+        }
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideSlashMenu();
+        return;
+      }
+    }, true);
+
+    slashMenuList.addEventListener('click', (e) => {
+      const itemEl = e.target.closest('.slash-menu-item');
+      if (!itemEl) return;
+      const idx = parseInt(itemEl.dataset.index, 10);
+      if (!isNaN(idx) && filteredSlashActions[idx]) {
+        e.preventDefault();
+        applySlashAction(filteredSlashActions[idx]);
+      }
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!slashActionMenu.contains(e.target) && e.target !== composerInput) {
+        hideSlashMenu();
+      }
+    });
+  }
+
   // --- Initial Load ---
   initModelPicker();
   initVoiceRecognition();
@@ -5124,6 +5453,7 @@
   initDrawerComposer();
   initAutomationsDashboard();
   initChangelogModal();
+  initSlashActionMenu();
 
   const currentSessionTitleEl = document.getElementById('current-session-title');
   if (currentSessionTitleEl) {
